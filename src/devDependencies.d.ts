@@ -2,3 +2,4 @@
 // available. Add any new untyped packages here.
 
 declare module 'epubjs';
+declare module 'js-cookie';
