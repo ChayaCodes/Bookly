@@ -169,10 +169,13 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
                     // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    const isTitleDefault = currentBook.title.includes('.') || currentBook.title === 'Unknown' || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
+                    const isTitleDefault = currentBook.title.includes('.') || /untitled/i.test(currentBook.title) || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
+                    const isAuthorDefault = /unknown/i.test(currentBook.author);
+                    const isDescriptionDefault = !currentBook.description || /impossible/i.test(currentBook.description);
+
                     if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
-                    if (result.data.author && currentBook.author === 'Unknown') updatePayload.author = result.data.author;
-                    if (result.data.description && !currentBook.description) updatePayload.description = result.data.description;
+                    if (result.data.author && isAuthorDefault) updatePayload.author = result.data.author;
+                    if (result.data.description && isDescriptionDefault) updatePayload.description = result.data.description;
                     if (result.data.tags && result.data.tags.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
 
                     // Only update if there's something to update
@@ -303,3 +306,5 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
+
+    
