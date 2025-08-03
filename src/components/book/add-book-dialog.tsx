@@ -99,13 +99,19 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
                 initialBook.coverImage = URL.createObjectURL(coverImageBlob);
             }
-             const textContent = await book.loaded.spine.then(spine => {
-                return Promise.all(spine.items.map(item => {
-                    return item.load(book.load.bind(book)).then(doc => {
-                        return doc.body.innerText;
-                    });
-                }));
-            }).then(texts => texts.join('\n'));
+             
+            await book.ready;
+            const textContent = await book.spine.items.reduce(async (accPromise, item) => {
+                const acc = await accPromise;
+                try {
+                    const doc = await item.load();
+                    const text = doc.body.innerText || "";
+                    return acc + text + "\n\n";
+                } catch(e) {
+                    console.warn(`Could not load section ${item.href}`, e);
+                    return acc;
+                }
+            }, Promise.resolve(""));
             bookTextContent = textContent;
 
         } else if (extension === 'pdf') {
