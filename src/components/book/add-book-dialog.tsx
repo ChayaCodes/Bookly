@@ -123,14 +123,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
              pendingBook.metadata.title = fileName;
           }
       }
-
-      toast({
-          title: 'Processing Complete!',
-          description: `Review the extracted details for "${pendingBook.metadata.title}".`,
-      });
       
       setPendingBook(pendingBook);
-
       setIsOpen(false);
       router.push('/books/new');
 
