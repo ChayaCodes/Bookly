@@ -85,13 +85,19 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   };
   
   const findBookById = async (id: string): Promise<Book | undefined> => {
-     const bookDocRef = doc(db, 'books', id);
-     const bookDoc = await getDoc(bookDocRef);
+    // First, try to find the book in the already loaded list
+    const localBook = books.find(b => b.id === id);
+    if (localBook) {
+      return Promise.resolve(localBook);
+    }
+    // If not found, fetch from firestore (might happen on a deep link)
+    const bookDocRef = doc(db, 'books', id);
+    const bookDoc = await getDoc(bookDocRef);
 
-     if (bookDoc.exists()) {
+    if (bookDoc.exists()) {
         return { id: bookDoc.id, ...bookDoc.data() } as Book;
-     }
-     return undefined;
+    }
+    return undefined;
   };
 
   const value = { books, addBook, updateBook, deleteBook, findBookById };
