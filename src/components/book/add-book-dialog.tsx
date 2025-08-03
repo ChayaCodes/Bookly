@@ -16,9 +16,12 @@ import { cn } from '@/lib/utils';
 import ePub from 'epubjs';
 import { useRouter } from 'next/navigation';
 import type { Book } from '@/lib/types';
-import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+  'pdfjs-dist/build/pdf.worker.min.js',
+  import.meta.url,
+).toString();
 
 
 const FormSchema = z.object({
@@ -159,10 +162,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
                     // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    if (result.data.title) updatePayload.title = result.data.title;
-                    if (result.data.author) updatePayload.author = result.data.author;
-                    if (result.data.description) updatePayload.description = result.data.description;
-                    if (result.data.tags && result.data.tags.length > 0) updatePayload.tags = result.data.tags;
+                    if (result.data.title && currentBook.title.endsWith(getFileExtension(currentBook.title) || '')) updatePayload.title = result.data.title;
+                    if (result.data.author && currentBook.author === 'Unknown') updatePayload.author = result.data.author;
+                    if (result.data.description && !currentBook.description) updatePayload.description = result.data.description;
+                    if (result.data.tags && result.data.tags.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
 
                     // Only update if there's something to update
                     if (Object.keys(updatePayload).length > 0) {
@@ -292,3 +295,5 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
+
+    
