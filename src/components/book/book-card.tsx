@@ -12,8 +12,8 @@ interface BookCardProps {
 }
 
 export function BookCard({ book }: BookCardProps) {
-  const hasText = !!book.storagePath;
-  const hasAudio = !!book.audioStoragePath;
+  const hasAudio = book.type === 'audio' || !!book.audioStoragePath;
+  const hasText = !!book.storagePath && book.type !== 'audio';
   // For now, we assume a single progress. If separate progress is tracked later, logic can be added here.
   const displayProgress = book.readingProgress; 
 
