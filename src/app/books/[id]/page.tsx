@@ -30,7 +30,7 @@ import { ref, getDownloadURL, uploadString } from 'firebase/storage';
 export default function BookDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { findBookById, deleteBook, updateBook } = useBookLibrary();
+  const { findBookById, deleteBook, updateBook, books } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
   const [isConverting, startConversionTransition] = useTransition();
@@ -39,19 +39,33 @@ export default function BookDetailsPage() {
 
   useEffect(() => {
     if (params.id) {
-      findBookById(params.id as string).then(foundBook => {
-          setBook(foundBook || null);
-          if (foundBook?.audioStoragePath) {
-              const audioRef = ref(storage, foundBook.audioStoragePath);
+      const foundBook = books.find(b => b.id === params.id);
+      if (foundBook) {
+        setBook(foundBook);
+        if (foundBook.audioStoragePath) {
+          const audioRef = ref(storage, foundBook.audioStoragePath);
+          getDownloadURL(audioRef).then(url => {
+            fetch(url).then(res => res.json()).then(data => {
+              setAudioChapters(data.chapters);
+            }).catch(e => console.error("Error fetching audio chapters json", e));
+          }).catch(e => console.error("Error getting download URL for audio", e));
+        }
+      } else {
+        // Fallback to fetch from server if not in local list
+        findBookById(params.id as string).then(serverBook => {
+          setBook(serverBook || null);
+           if (serverBook?.audioStoragePath) {
+              const audioRef = ref(storage, serverBook.audioStoragePath);
               getDownloadURL(audioRef).then(url => {
                   fetch(url).then(res => res.json()).then(data => {
                       setAudioChapters(data.chapters);
-                  })
-              })
+                  }).catch(e => console.error("Error fetching audio chapters json", e));
+              }).catch(e => console.error("Error getting download URL for audio", e));
           }
-      });
+        });
+      }
     }
-  }, [params.id, findBookById]); 
+  }, [params.id, books, findBookById]);
 
 
   const handleGenerateSummary = () => {
