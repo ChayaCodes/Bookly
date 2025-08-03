@@ -118,10 +118,13 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             }
              
             await book.ready;
-            const textContent = await book.spine.items.reduce(async (accPromise, item) => {
+            const textContent = await book.spine.items.reduce(async (accPromise, item: any) => {
                 const acc = await accPromise;
+                if (!item.load) {
+                  console.warn('Skipping section, item.load is not a function', item);
+                  return acc;
+                }
                 try {
-                    // @ts-ignore
                     const doc = await item.load(book.load.bind(book));
                     const text = doc.body.innerText || "";
                     return acc + text + "\n\n";
