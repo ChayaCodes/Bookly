@@ -55,11 +55,12 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   
 
   const addBook = async (book: Omit<Book, 'id' | 'createdAt'>) => {
+     const now = Date.now();
      const docRef = await addDoc(collection(db, 'books'), {
         ...book,
-        createdAt: Date.now(),
+        createdAt: now,
      });
-     const newBook = { id: docRef.id, createdAt: Date.now(), ...book }
+     const newBook = { id: docRef.id, createdAt: now, ...book }
      // Manually add to local state to avoid waiting for snapshot listener
      setBooks(prevBooks => [newBook as Book, ...prevBooks]);
      return newBook as Book;
