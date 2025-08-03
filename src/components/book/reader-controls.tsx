@@ -4,7 +4,7 @@
 import React from 'react';
 import Link from 'next/link';
 import type { NavItem } from 'epubjs';
-import { ArrowLeft, ChevronLeft, ChevronRight, List, Settings } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, List, Settings, Maximize, Minimize } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -17,35 +17,43 @@ import { ScrollArea } from '../ui/scroll-area';
 interface ReaderControlsProps {
     title?: string;
     bookId?: string;
-    prevBookId?: string | null;
-    nextBookId?: string | null;
+    prevChapterAvailable: boolean;
+    nextChapterAvailable: boolean;
+    onPrevChapterClick: () => void;
+    onNextChapterClick: () => void;
     toc: NavItem[];
     onTocSelect: (href: string) => void;
     isRtl: boolean;
-    onPrevClick: () => void;
-    onNextClick: () => void;
+    onPrevPageClick: () => void;
+    onNextPageClick: () => void;
+    onFullscreenClick: () => void;
+    isFullscreen: boolean;
 }
 
 export function ReaderControls({
     title,
     bookId,
-    prevBookId,
-    nextBookId,
+    prevChapterAvailable,
+    nextChapterAvailable,
+    onPrevChapterClick,
+    onNextChapterClick,
     toc,
     onTocSelect,
     isRtl,
-    onPrevClick,
-    onNextClick
+    onPrevPageClick,
+    onNextPageClick,
+    onFullscreenClick,
+    isFullscreen,
 }: ReaderControlsProps) {
 
-    const NextButton = () => (
-        <Button variant="ghost" size="icon" onClick={onNextClick} className="rounded-full h-12 w-12 bg-black/20 hover:bg-black/40 text-white">
+    const NextPageButton = () => (
+        <Button variant="ghost" size="icon" onClick={onNextPageClick} className="rounded-full h-12 w-12 bg-black/20 hover:bg-black/40 text-white">
             <ChevronRight className="h-6 w-6" />
         </Button>
     );
 
-    const PrevButton = () => (
-        <Button variant="ghost" size="icon" onClick={onPrevClick} className="rounded-full h-12 w-12 bg-black/20 hover:bg-black/40 text-white">
+    const PrevPageButton = () => (
+        <Button variant="ghost" size="icon" onClick={onPrevPageClick} className="rounded-full h-12 w-12 bg-black/20 hover:bg-black/40 text-white">
             <ChevronLeft className="h-6 w-6" />
         </Button>
     );
@@ -63,27 +71,27 @@ export function ReaderControls({
                     </Link>
                 </Button>
                 <div className="flex items-center gap-2">
-                    <Button variant="ghost" asChild size="icon" disabled={!prevBookId} className="text-white hover:bg-white/20 hover:text-white">
-                         <Link href={prevBookId ? `/books/${prevBookId}/read` : '#'}>
-                            <ChevronLeft className="h-5 w-5" />
-                        </Link>
+                    <Button variant="ghost" size="icon" disabled={!prevChapterAvailable} onClick={onPrevChapterClick} className="text-white hover:bg-white/20 hover:text-white">
+                         <ChevronLeft className="h-5 w-5" />
                     </Button>
                      <p className="text-sm font-bold text-center w-48 truncate">{title}</p>
-                     <Button variant="ghost" asChild size="icon" disabled={!nextBookId} className="text-white hover:bg-white/20 hover:text-white">
-                        <Link href={nextBookId ? `/books/${nextBookId}/read` : '#'}>
-                            <ChevronRight className="h-5 w-5" />
-                        </Link>
+                     <Button variant="ghost" size="icon" disabled={!nextChapterAvailable} onClick={onNextChapterClick} className="text-white hover:bg-white/20 hover:text-white">
+                        <ChevronRight className="h-5 w-5" />
                     </Button>
                 </div>
-                <div className="w-[150px]"/>
+                <div className="w-[150px] flex justify-end">
+                    <Button variant="ghost" size="icon" onClick={onFullscreenClick} className="text-white hover:bg-white/20 hover:text-white">
+                       {isFullscreen ? <Minimize className="h-5 w-5" /> : <Maximize className="h-5 w-5" />}
+                    </Button>
+                </div>
             </div>
 
             {/* Left/Right Page Turn Buttons */}
              <div className="absolute left-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                {isRtl ? <NextButton /> : <PrevButton />}
+                {isRtl ? <NextPageButton /> : <PrevPageButton />}
             </div>
              <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                {isRtl ? <PrevButton /> : <NextButton />}
+                {isRtl ? <PrevPageButton /> : <NextPageButton />}
             </div>
 
             {/* Footer Controls */}

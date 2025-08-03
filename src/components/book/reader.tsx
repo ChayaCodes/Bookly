@@ -24,8 +24,12 @@ export function Reader() {
     const [error, setError] = useState<string | null>(null);
     const [toc, setToc] = useState<NavItem[]>([]);
     const [currentLocation, setCurrentLocation] = useState<string>('');
+    const [currentChapter, setCurrentChapter] = useState<NavItem | null>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
 
     const epubViewerRef = useRef<EpubViewerRef>(null);
+    const readerContainerRef = useRef<HTMLDivElement>(null);
+
 
     const bookId = params.id as string;
     const bookIndex = books.findIndex(b => b.id === bookId);
@@ -70,6 +74,23 @@ export function Reader() {
     const handleTocSelect = useCallback((href: string) => {
         epubViewerRef.current?.goTo(href);
     }, []);
+    
+    const goToPrevChapter = useCallback(() => {
+        if (!currentChapter || !toc.length) return;
+        const currentIndex = toc.findIndex(item => item.id === currentChapter.id);
+        if (currentIndex > 0) {
+            epubViewerRef.current?.goTo(toc[currentIndex - 1].href);
+        }
+    }, [currentChapter, toc]);
+
+    const goToNextChapter = useCallback(() => {
+        if (!currentChapter || !toc.length) return;
+        const currentIndex = toc.findIndex(item => item.id === currentChapter.id);
+        if (currentIndex < toc.length - 1) {
+            epubViewerRef.current?.goTo(toc[currentIndex + 1].href);
+        }
+    }, [currentChapter, toc]);
+
 
     const handlePrevPage = useCallback(() => {
         if (isRtl) epubViewerRef.current?.nextPage();
@@ -80,6 +101,28 @@ export function Reader() {
         if (isRtl) epubViewerRef.current?.prevPage();
         else epubViewerRef.current?.nextPage();
     }, [isRtl]);
+
+    const toggleFullscreen = useCallback(() => {
+        const elem = readerContainerRef.current;
+        if (!elem) return;
+
+        if (!document.fullscreenElement) {
+            elem.requestFullscreen().catch(err => {
+                alert(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+            });
+        } else {
+            document.exitFullscreen();
+        }
+    }, []);
+
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
 
     useEffect(() => {
         const handleKeyDown = (event: KeyboardEvent) => {
@@ -97,13 +140,14 @@ export function Reader() {
 
         switch(book.type) {
             case 'epub':
-            case 'text': // Treat text as epub for now
+            case 'text':
                 return (
                     <EpubViewer 
                         ref={epubViewerRef} 
                         fileContent={fileContent} 
                         onTocReady={setToc}
                         onLocationChange={setCurrentLocation}
+                        onChapterChange={setCurrentChapter}
                     />
                 );
             case 'pdf':
@@ -132,27 +176,39 @@ export function Reader() {
             </div>
         )
     }
+    
+    const currentChapterIndex = toc.findIndex(item => item.id === currentChapter?.id);
+    const hasPrevChapter = currentChapterIndex > 0;
+    const hasNextChapter = currentChapterIndex < toc.length - 1;
+
 
     return (
-        <div className="h-screen w-screen bg-background text-foreground flex flex-col relative overflow-hidden">
+        <div ref={readerContainerRef} className="h-screen w-screen bg-background text-foreground flex flex-col relative overflow-hidden">
             <div className="relative w-full h-full flex-1">
                 {renderBookContent()}
 
-                {/* Clickable areas for page turning */}
-                <div className="absolute left-0 top-0 h-full w-1/4 z-10" onClick={handlePrevPage} />
-                <div className="absolute right-0 top-0 h-full w-1/4 z-10" onClick={handleNextPage} />
-                
-                <ReaderControls 
-                    title={book?.title}
-                    bookId={book?.id}
-                    prevBookId={prevBookId}
-                    nextBookId={nextBookId}
-                    toc={toc}
-                    onTocSelect={handleTocSelect}
-                    isRtl={isRtl}
-                    onPrevClick={handlePrevPage}
-                    onNextClick={handleNextPage}
-                />
+                {!isFullscreen && (
+                    <>
+                        <div className="absolute left-0 top-0 h-full w-1/4 z-10" onClick={handlePrevPage} />
+                        <div className="absolute right-0 top-0 h-full w-1/4 z-10" onClick={handleNextPage} />
+                        
+                        <ReaderControls 
+                            title={currentChapter?.label?.trim()}
+                            bookId={book?.id}
+                            prevChapterAvailable={hasPrevChapter}
+                            nextChapterAvailable={hasNextChapter}
+                            onPrevChapterClick={goToPrevChapter}
+                            onNextChapterClick={goToNextChapter}
+                            toc={toc}
+                            onTocSelect={handleTocSelect}
+                            isRtl={isRtl}
+                            onPrevPageClick={handlePrevPage}
+                            onNextPageClick={handleNextPage}
+                            onFullscreenClick={toggleFullscreen}
+                            isFullscreen={isFullscreen}
+                        />
+                   </>
+                )}
             </div>
         </div>
     );
