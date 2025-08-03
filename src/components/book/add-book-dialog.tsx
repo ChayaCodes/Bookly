@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 const FormSchema = z.object({
-  file: z.any().refine(file => file instanceof File && file.size > 0, "Please upload a file."),
+  file: z.instanceof(File, { message: "Please upload a file." }).refine(file => file.size > 0, "File cannot be empty."),
 });
 
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
@@ -27,9 +27,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: {
-      file: undefined,
-    }
   });
   
   const fileRef = form.register("file");
@@ -169,8 +166,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                         accept=".txt,.epub,.md"
                         {...fileRef}
                         onChange={(e) => {
-                            if (e.target.files && e.target.files.length > 0) {
-                                field.onChange(e.target.files[0])
+                            const file = e.target.files?.[0];
+                            if (file) {
+                                form.setValue('file', file, { shouldValidate: true });
                             }
                         }}
                       />
