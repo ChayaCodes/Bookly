@@ -36,12 +36,10 @@ export default function BookDetailsPage() {
 
   useEffect(() => {
     if (params.id) {
-      // Directly fetch the book with its content and update the state.
-      // This ensures the component has the full book data.
       const foundBook = findBookById(params.id as string);
       setBook(foundBook || null);
     }
-  }, [params.id, findBookById, books]); // `books` is included to refetch if the library changes.
+  }, [params.id, findBookById, books]); 
 
 
   const handleGenerateSummary = () => {

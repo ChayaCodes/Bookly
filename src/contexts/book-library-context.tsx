@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import type { Book } from '@/lib/types';
+import { useToast } from '@/hooks/use-toast';
 
 interface BookLibraryContextType {
   books: Book[];
@@ -16,6 +17,7 @@ export const BookLibraryContext = React.createContext<BookLibraryContextType | u
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
   const [books, setBooks] = React.useState<Book[]>([]);
   const [isLoaded, setIsLoaded] = React.useState(false);
+  const { toast } = useToast();
 
   // Load from localStorage only on the client, after initial render
   React.useEffect(() => {
@@ -32,28 +34,61 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   
   // This effect runs whenever the `books` state changes, saving it to localStorage.
   React.useEffect(() => {
-    // Only save to localStorage after the initial load to prevent overwriting
     if (isLoaded) {
         try {
-            // Exclude file content from being stored in localStorage to avoid size issues
-            const booksToStore = books.map(({ content, ...book }) => book);
-            window.localStorage.setItem('books', JSON.stringify(booksToStore));
+            // The `books` state should NOT contain the `content` property.
+            window.localStorage.setItem('books', JSON.stringify(books));
         } catch (error) {
             console.error("Error saving books to localStorage", error);
         }
     }
   }, [books, isLoaded]);
 
+  const saveBookContent = (id: string, content: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+        const stored = window.localStorage.getItem('books_content') || '[]';
+        const contents = JSON.parse(stored);
+        // Avoid duplicates
+        const existingIndex = contents.findIndex((item: {id: string}) => item.id === id);
+        if (existingIndex > -1) {
+            contents[existingIndex] = { id, content };
+        } else {
+            contents.push({ id, content });
+        }
+        window.localStorage.setItem('books_content', JSON.stringify(contents));
+    } catch(e) {
+        console.error("Failed to save book content to localStorage", e);
+        toast({
+            variant: 'destructive',
+            title: 'Could not save book content',
+            description: 'The book content is too large to be saved in your browser. Some features might not work correctly.'
+        })
+    }
+  }
 
   const addBook = (book: Book) => {
     const { content, ...bookWithoutContent } = book;
+
+    if (content) {
+      saveBookContent(book.id, content);
+    }
+    
     setBooks(prevBooks => [bookWithoutContent, ...prevBooks]);
   };
 
   const updateBook = (updatedBook: Partial<Book> & { id: string }) => {
+    // If the update contains content, save it separately
+    if (updatedBook.content) {
+        saveBookContent(updatedBook.id, updatedBook.content);
+    }
+    
+    // Remove content from the object before updating the state
+    const { content, ...updateWithoutContent } = updatedBook;
+
     setBooks(prevBooks =>
       prevBooks.map(book => 
-        book.id === updatedBook.id ? { ...book, ...updatedBook } : book
+        book.id === updateWithoutContent.id ? { ...book, ...updateWithoutContent } : book
       )
     );
   };

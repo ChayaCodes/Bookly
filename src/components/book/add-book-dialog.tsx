@@ -70,23 +70,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const getFileExtension = (filename: string) => {
     return filename.split('.').pop()?.toLowerCase();
   }
-  
-  const saveBookContent = (id: string, content: string) => {
-    try {
-        const stored = window.localStorage.getItem('books_content') || '[]';
-        const contents = JSON.parse(stored);
-        contents.push({ id, content });
-        window.localStorage.setItem('books_content', JSON.stringify(contents));
-    } catch(e) {
-        console.error("Failed to save book content to localStorage", e);
-        toast({
-            variant: 'destructive',
-            title: 'Could not save book content',
-            description: 'The book content is too large to be saved in your browser. Some features might not work correctly.'
-        })
-    }
-  }
-
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     startTransition(async () => {
@@ -107,7 +90,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           coverImage: coverImageUrl,
           'data-ai-hint': 'book cover',
           language: 'English',
-          content: '', // Content will be handled separately
+          content: '', // Content will be populated below
           readingProgress: 0,
         };
 
@@ -177,14 +160,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             }
         }
         
-        // Don't store full content in the main book object which goes to localStorage
-        initialBook.content = ''; 
+        initialBook.content = bookTextContent;
         addBook(initialBook);
-
-        if (bookTextContent) {
-            saveBookContent(bookId, bookTextContent);
-        }
-
 
         toast({
           title: 'Book Added!',
