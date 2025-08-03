@@ -46,7 +46,8 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
 
 
   const addBook = (book: Book) => {
-    setBooks(prevBooks => [book, ...prevBooks]);
+    const { content, ...bookWithoutContent } = book;
+    setBooks(prevBooks => [bookWithoutContent, ...prevBooks]);
   };
 
   const updateBook = (updatedBook: Partial<Book> & { id: string }) => {
@@ -75,9 +76,7 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   const findBookById = (id: string): Book | undefined => {
     const bookFromState = books.find(book => book.id === id);
 
-    if (bookFromState && bookFromState.content) {
-      return bookFromState;
-    }
+    if (!bookFromState) return undefined;
     
     if (typeof window !== 'undefined') {
       try {

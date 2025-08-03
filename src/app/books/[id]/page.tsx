@@ -40,10 +40,20 @@ export default function BookDetailsPage() {
         setBook(foundBook);
       } else {
         // Handle book not found, maybe redirect
-        router.push('/');
+        // It might not be loaded yet, wait for the hook to provide it.
       }
     }
   }, [params.id, findBookById, router]);
+  
+    // This effect is needed because the book data might not be available on first render
+    useEffect(() => {
+        if (params.id && !book) {
+            const foundBook = findBookById(params.id as string);
+            if(foundBook) {
+                setBook(foundBook);
+            }
+        }
+    }, [findBookById, book, params.id])
 
   const handleGenerateSummary = () => {
     if (!book || !book.content) return;

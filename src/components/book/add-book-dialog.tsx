@@ -121,6 +121,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             const textContent = await book.spine.items.reduce(async (accPromise, item) => {
                 const acc = await accPromise;
                 try {
+                    // @ts-ignore
                     const doc = await item.load(book.load.bind(book));
                     const text = doc.body.innerText || "";
                     return acc + text + "\n\n";
@@ -164,8 +165,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             }
         }
         
-        initialBook.content = bookTextContent; 
+        // Don't store full content in the main book object which goes to localStorage
+        initialBook.content = ''; 
         addBook(initialBook);
+
         if (bookTextContent) {
             saveBookContent(bookId, bookTextContent);
         }
