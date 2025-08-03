@@ -6,7 +6,7 @@ import { generateAudiobook } from '@/ai/flows/generate-audiobook';
 import { generateBookCover } from '@/ai/flows/generate-book-cover';
 import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
-import { ref, uploadString, getDownloadURL, getBlob } from 'firebase/storage';
+import { ref, uploadString, getDownloadURL, getBytes } from 'firebase/storage';
 import { doc, updateDoc, addDoc, collection, Timestamp } from 'firebase/firestore';
 import type { Book } from '@/lib/types';
 
@@ -77,10 +77,12 @@ async function processBookInBackground(bookId: string, storagePath: string) {
     try {
         console.log(`[${bookId}] ⏳ Starting background processing...`);
         const fileRef = ref(storage, storagePath);
-        const blob = await getBlob(fileRef);
+        
+        // Use getBytes, which is environment-agnostic (works on server)
+        const fileBuffer = await getBytes(fileRef);
         
         // This is a simplified text extraction. Real-world apps need more robust parsers.
-        const bookText = await blob.text();
+        const bookText = new TextDecoder().decode(fileBuffer);
         const truncatedText = bookText.slice(0, 15000);
 
         // Generate Metadata
@@ -90,7 +92,7 @@ async function processBookInBackground(bookId: string, storagePath: string) {
 
         const updatePayload: Partial<Book> = { ...metadata, description: metadata.description || 'No description generated.' };
         await updateDoc(bookDocRef, updatePayload);
-        console.log(`[${bookId}] ✅ Firestore record updated with metadata.`);
+        console.log(`[${bookId}] ✅ Firestore record updated with metadata:`, updatePayload);
 
         // Generate Cover Image
         console.log(`[${bookId}] 🎨 Generating cover image...`);
@@ -124,17 +126,17 @@ const summarySchema = z.object({
 async function getTextContentFromStorage(storagePath: string): Promise<string> {
     const fileRef = ref(storage, storagePath);
     try {
-        const blob = await getBlob(fileRef);
+        const fileBuffer = await getBytes(fileRef);
         // This is a placeholder for actual text extraction from PDF/EPUB on the server.
         // For now, we are just returning a placeholder text as parsing is complex.
         try {
-            const text = await blob.text();
+            const text = new TextDecoder().decode(fileBuffer);
             if (text.trim().length === 0) {
                  return "This document appears to be empty or in a format that could not be read as text.";
             }
             return text;
         } catch (e) {
-            console.warn(`Could not read ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
+            console.warn(`Could not decode ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
             return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
         }
     } catch (e: any) {
