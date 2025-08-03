@@ -104,11 +104,11 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             const textContent = await book.spine.items.reduce(async (accPromise, item) => {
                 const acc = await accPromise;
                 try {
-                    const doc = await item.load();
+                    const doc = await item.load(book.load.bind(book));
                     const text = doc.body.innerText || "";
                     return acc + text + "\n\n";
                 } catch(e) {
-                    console.warn(`Could not load section ${item.href}`, e);
+                    console.warn(`Could not load section`, e);
                     return acc;
                 }
             }, Promise.resolve(""));
@@ -160,15 +160,16 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         router.push(`/books/edit/${bookId}`);
         
         // Asynchronous AI Processing only if we have text content
-        if (bookTextContent && bookTextContent.length >= 100) {
-            generateMetadataAction({ bookText: bookTextContent }).then(result => {
+        const textForAi = bookTextContent.slice(0, 10000);
+        if (textForAi && textForAi.length >= 100) {
+            generateMetadataAction({ bookText: textForAi }).then(result => {
                 if (result.data) {
                     const currentBook = findBookById(bookId);
                     if (!currentBook) return;
 
                     // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    if (result.data.title && currentBook.title.endsWith(getFileExtension(currentBook.title) || '')) updatePayload.title = result.data.title;
+                    if (result.data.title && (currentBook.title.includes('.') || currentBook.title === 'Unknown')) updatePayload.title = result.data.title;
                     if (result.data.author && currentBook.author === 'Unknown') updatePayload.author = result.data.author;
                     if (result.data.description && !currentBook.description) updatePayload.description = result.data.description;
                     if (result.data.tags && result.data.tags.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
