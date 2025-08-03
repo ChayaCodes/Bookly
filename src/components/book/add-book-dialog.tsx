@@ -51,16 +51,18 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       const bookId = uuidv4();
       
       try {
-        // 1. Show immediate feedback
         toast({
-          title: 'Starting Upload...',
-          description: `"${file.name}" is being uploaded.`,
+          title: 'Reading File...',
+          description: `Preparing "${file.name}" for upload.`,
         });
 
-        // 2. Read file as data URL on the client
         const fileDataUrl = await fileToDataURL(file);
 
-        // 3. Upload via server action
+        toast({
+          title: 'Starting Upload...',
+          description: `Please wait while the file is being uploaded.`,
+        });
+
         const uploadResult = await uploadBookAction({
             bookId: bookId,
             fileName: file.name,
@@ -68,12 +70,16 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         });
 
         if (uploadResult.error || !uploadResult.storagePath) {
-             throw new Error(uploadResult.error || "Upload failed to return a storage path.");
+             toast({
+                variant: 'destructive',
+                title: 'Upload Failed',
+                description: uploadResult.error || 'An unknown error occurred during upload.'
+             });
+             return;
         }
 
         const storagePath = uploadResult.storagePath;
 
-        // 4. Add a placeholder book to Firestore immediately
         let initialBook: Omit<Book, 'id'|'createdAt'> = {
           type: 'text',
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
@@ -97,7 +103,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         form.reset();
         setIsOpen(false);
         
-        // 5. Asynchronously trigger AI processing in the background
         generateMetadataAction({ bookId: bookId, storagePath: storagePath })
           .then(result => {
              if (result.error) {
@@ -106,7 +111,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                      title: 'AI Processing Failed',
                      description: result.error,
                  });
-                 // Optionally update the book to show the error
                  updateBook({ id: bookId, description: `AI processing failed. ${result.error}`})
              } else {
                   toast({
@@ -120,10 +124,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         console.error("Error in upload process:", error);
         toast({
           variant: 'destructive',
-          title: 'Upload Failed',
-          description: error instanceof Error ? error.message : 'An unknown error occurred.',
+          title: 'Operation Failed',
+          description: error instanceof Error ? error.message : 'An unexpected error occurred.',
         });
-        // Here you might want to clean up the failed book entry if it was created
       }
     });
   }

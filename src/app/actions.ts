@@ -14,7 +14,7 @@ import type { Book } from '@/lib/types';
 const uploadSchema = z.object({
   bookId: z.string(),
   fileName: z.string(),
-  fileDataUrl: z.string(),
+  fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
 });
 
 export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Promise<{ storagePath: string | null, error: string | null }> {
@@ -33,7 +33,10 @@ export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Pro
     } catch (e: any) {
         console.error("Server-side upload failed:", e);
         if (e.code === 'storage/unauthorized') {
-            return { storagePath: null, error: "Upload failed: Permission denied. Please check your Firebase Storage security rules." };
+            return { storagePath: null, error: "Upload failed: Permission denied. Your Firebase Storage security rules may not allow unauthenticated writes." };
+        }
+        if (e.code === 'storage/unknown') {
+            return { storagePath: null, error: 'An unknown storage error occurred. This might be due to incorrect Firebase Storage setup or rules.' };
         }
         return { storagePath: null, error: e.message || "An unknown error occurred during file upload." };
     }
