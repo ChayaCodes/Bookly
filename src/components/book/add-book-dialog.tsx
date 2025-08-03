@@ -10,12 +10,20 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Loader2, Sparkles, UploadCloud } from 'lucide-react';
 import { useBookLibrary } from '@/hooks/use-book-library';
-import { generateMetadataAction } from '@/app/actions';
+import { generateMetadataAction, uploadBookAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { Book } from '@/lib/types';
-import { storage } from '@/lib/firebase';
-import { ref, uploadBytes } from "firebase/storage";
+
+// Helper to convert a file to a Base64 data URL
+const fileToDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
 
 
 const FormSchema = z.object({
@@ -39,29 +47,43 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     startTransition(async () => {
       try {
         const file = data.file;
-        const bookId = crypto.randomUUID();
-        const storagePath = `books/${bookId}-${file.name}`;
         
-        // 1. Upload the file immediately to get quick feedback
-        const storageRef = ref(storage, storagePath);
-        const uploadResult = await uploadBytes(storageRef, file);
-        
-        // 2. Add a placeholder book to Firestore
+        // 1. Add a placeholder book to Firestore first
         let initialBook: Omit<Book, 'id'|'createdAt'> = {
           type: 'text',
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
           author: 'Unknown',
-          description: 'Processing...',
+          description: 'Uploading...',
           tags: [],
-          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Processing`,
+          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Uploading`,
           'data-ai-hint': 'book cover',
           language: 'English',
-          storagePath: uploadResult.metadata.fullPath,
           readingProgress: 0,
         };
 
         const addedBook = await addBook(initialBook);
 
+        // 2. Read file as data URL on the client
+        const fileDataUrl = await fileToDataURL(file);
+
+        // 3. Upload via server action to bypass CORS
+        const uploadResult = await uploadBookAction({
+            bookId: addedBook.id,
+            fileName: file.name,
+            fileDataUrl: fileDataUrl,
+        });
+
+        if (uploadResult.error || !uploadResult.storagePath) {
+             throw new Error(uploadResult.error || "Upload failed to return a storage path.");
+        }
+
+        // 4. Update book with storage path
+        await useBookLibrary().updateBook({
+            id: addedBook.id,
+            storagePath: uploadResult.storagePath,
+            description: 'Processing...'
+        });
+        
         toast({
           title: 'Upload Complete!',
           description: `"${initialBook.title}" is now being processed by AI.`,
@@ -70,8 +92,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         form.reset();
         setIsOpen(false);
         
-        // 3. Asynchronously trigger AI processing in the background
-        generateMetadataAction({ bookId: addedBook.id, storagePath: addedBook.storagePath! })
+        // 5. Asynchronously trigger AI processing in the background
+        generateMetadataAction({ bookId: addedBook.id, storagePath: uploadResult.storagePath })
           .then(result => {
              if (result.error) {
                  toast({
@@ -92,7 +114,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         toast({
           variant: 'destructive',
           title: 'Error uploading file',
-          description: 'Could not upload the file. This might be a CORS issue with Firebase Storage. Please ensure your storage bucket is configured to allow requests from this domain.',
+          description: error instanceof Error ? error.message : 'An unknown error occurred.',
         });
       }
     });
