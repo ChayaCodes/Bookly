@@ -13,15 +13,9 @@ import { useBookLibrary } from '@/hooks/use-book-library';
 import { generateMetadataAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import ePub from 'epubjs';
-import { useRouter } from 'next/navigation';
 import type { Book } from '@/lib/types';
-import * as pdfjsLib from 'pdfjs-dist';
 import { storage } from '@/lib/firebase';
 import { ref, uploadBytes } from "firebase/storage";
-
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 
 const FormSchema = z.object({
@@ -29,146 +23,76 @@ const FormSchema = z.object({
     .refine(file => file.size > 0, "File cannot be empty."),
 });
 
-// Helper to convert a blob to a Base64 data URL
-const blobToDataURL = (blob: Blob): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
-    });
-};
-
 
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook, updateBook } = useBookLibrary();
+  const { addBook } = useBookLibrary();
   const { toast } = useToast();
-  const router = useRouter();
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
   });
 
-  const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as ArrayBuffer);
-      reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
-    });
-  };
-  
-  const getFileExtension = (filename: string) => {
-    return filename.split('.').pop()?.toLowerCase();
-  }
-
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     startTransition(async () => {
       try {
         const file = data.file;
-        const extension = getFileExtension(file.name);
+        const bookId = crypto.randomUUID();
+        const storagePath = `books/${bookId}-${file.name}`;
         
-        let coverImageUrl = `https://placehold.co/400x600/9ca3da/2a2e45`;
-        let storagePath = `books/${crypto.randomUUID()}-${file.name}`;
+        // 1. Upload the file immediately to get quick feedback
+        const storageRef = ref(storage, storagePath);
+        const uploadResult = await uploadBytes(storageRef, file);
         
+        // 2. Add a placeholder book to Firestore
         let initialBook: Omit<Book, 'id'|'createdAt'> = {
           type: 'text',
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
           author: 'Unknown',
-          description: '',
+          description: 'Processing...',
           tags: [],
-          coverImage: coverImageUrl,
+          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Processing`,
           'data-ai-hint': 'book cover',
           language: 'English',
-          storagePath: storagePath,
+          storagePath: uploadResult.metadata.fullPath,
           readingProgress: 0,
         };
-        
-        // Upload the original file to Firebase Storage
-        const storageRef = ref(storage, storagePath);
-        const uploadResult = await uploadBytes(storageRef, file);
-        storagePath = uploadResult.metadata.fullPath; // Get the final path
-        initialBook.storagePath = storagePath;
 
-
-        const arrayBuffer = await readFileAsArrayBuffer(file);
-
-        if (extension === 'epub') {
-            const book = ePub(arrayBuffer);
-            const metadata = await book.loaded.metadata;
-            if (metadata.title) initialBook.title = metadata.title;
-            if (metadata.creator) initialBook.author = metadata.creator;
-            if (metadata.description) initialBook.description = metadata.description;
-
-            const coverUrl = await book.coverUrl();
-            if (coverUrl) {
-                const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
-                initialBook.coverImage = await blobToDataURL(coverImageBlob);
-            }
-        } else if (extension === 'pdf') {
-            const pdf = await pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
-            
-            // Extract cover image from first page
-            const page = await pdf.getPage(1);
-            const viewport = page.getViewport({ scale: 1.5 });
-            const canvas = document.createElement('canvas');
-            const context = canvas.getContext('2d');
-            canvas.height = viewport.height;
-            canvas.width = viewport.width;
-
-            if (context) {
-                await page.render({ canvasContext: context, viewport: viewport }).promise;
-                initialBook.coverImage = canvas.toDataURL();
-            }
-        }
-        
-        await addBook(initialBook);
+        const addedBook = await addBook(initialBook);
 
         toast({
-          title: 'Book Added!',
-          description: `"${initialBook.title}" is being processed.`,
+          title: 'Upload Complete!',
+          description: `"${initialBook.title}" is now being processed by AI.`,
         });
 
         form.reset();
         setIsOpen(false);
         
-        // Asynchronous AI Processing
-        generateMetadataAction({ storagePath }).then(async (result) => {
-            if (result.data) {
-                const booksResponse = await fetch(`/api/books?path=${storagePath}`);
-                const books = await booksResponse.json();
-                if (books.length > 0) {
-                    const bookId = books[0].id;
-
-                    const updatePayload: Partial<Book> = {};
-                    if (result.data.title) updatePayload.title = result.data.title;
-                    if (result.data.author) updatePayload.author = result.data.author;
-                    if (result.data.description) updatePayload.description = result.data.description;
-                    if (result.data.tags?.length > 0) updatePayload.tags = result.data.tags;
-
-                    if (Object.keys(updatePayload).length > 0) {
-                       await updateBook({
-                           id: bookId,
-                           ...updatePayload,
-                       });
-                       toast({
-                           title: 'AI Update',
-                           description: `AI has finished processing "${updatePayload.title || initialBook.title}".`,
-                       });
-                    }
-                }
-            }
-        });
+        // 3. Asynchronously trigger AI processing in the background
+        generateMetadataAction({ bookId: addedBook.id, storagePath: addedBook.storagePath! })
+          .then(result => {
+             if (result.error) {
+                 toast({
+                     variant: 'destructive',
+                     title: 'AI Processing Failed',
+                     description: result.error,
+                 });
+             } else {
+                  toast({
+                      title: 'AI Update',
+                      description: `"${result.data?.title || initialBook.title}" has been enhanced by AI.`,
+                  });
+             }
+          });
 
       } catch (error) {
-        console.error("Error processing book:", error);
+        console.error("Error uploading book:", error);
         toast({
           variant: 'destructive',
-          title: 'Error processing file',
-          description: 'Could not process the uploaded file. Please check the file type and try again.',
+          title: 'Error uploading file',
+          description: 'Could not upload the file. Please check your connection and try again.',
         });
       }
     });
@@ -214,7 +138,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             Add New Book
           </DialogTitle>
           <DialogDescription>
-            Upload a book file (EPUB, PDF, TXT). We'll store it in the cloud and extract its details.
+            Upload a book file (EPUB, PDF, TXT). We'll store it in the cloud and process it with AI.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>

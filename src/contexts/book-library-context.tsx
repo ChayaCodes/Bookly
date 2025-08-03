@@ -13,13 +13,14 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  writeBatch
+  writeBatch,
+  DocumentReference,
 } from 'firebase/firestore';
 import { ref, deleteObject } from "firebase/storage";
 
 interface BookLibraryContextType {
   books: Book[];
-  addBook: (book: Omit<Book, 'id' | 'createdAt'>) => Promise<void>;
+  addBook: (book: Omit<Book, 'id' | 'createdAt'>) => Promise<Book>;
   updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
@@ -54,10 +55,11 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   
 
   const addBook = async (book: Omit<Book, 'id' | 'createdAt'>) => {
-     await addDoc(collection(db, 'books'), {
+     const docRef = await addDoc(collection(db, 'books'), {
         ...book,
         createdAt: Date.now(),
      });
+     return { id: docRef.id, ...book } as Book;
   };
 
   const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
