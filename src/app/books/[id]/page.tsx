@@ -5,13 +5,13 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
-import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, Text, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditBookDialog } from '@/components/book/edit-book-dialog';
-import { summarizeContentAction } from '@/app/actions';
+import { summarizeContentAction, generateAudiobookAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -31,34 +31,29 @@ export default function BookDetailsPage() {
   const { findBookById, deleteBook, updateBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
+  const [isConverting, startConversionTransition] = useTransition();
   const { toast } = useToast();
 
   useEffect(() => {
     if (params.id) {
       const foundBook = findBookById(params.id as string);
-      if (foundBook) {
-        setBook(foundBook);
-      } else {
-        // Handle book not found, maybe redirect
-        // It might not be loaded yet, wait for the hook to provide it.
-      }
+      setBook(foundBook || null);
     }
-  }, [params.id, findBookById, router]);
+  }, [params.id, findBookById]);
   
-    // This effect is needed because the book data might not be available on first render
-    useEffect(() => {
-        if (params.id && !book) {
-            const foundBook = findBookById(params.id as string);
-            if(foundBook) {
-                setBook(foundBook);
-            }
+  useEffect(() => {
+    if (params.id && !book) {
+        const foundBook = findBookById(params.id as string);
+        if(foundBook) {
+            setBook(foundBook);
         }
-    }, [findBookById, book, params.id])
+    }
+  }, [findBookById, book, params.id])
 
   const handleGenerateSummary = () => {
     if (!book || !book.content) return;
     startSummaryTransition(async () => {
-      const result = await summarizeContentAction({ bookContent: book.content });
+      const result = await summarizeContentAction({ bookContent: book.content as string });
       if (result.error) {
         toast({
           variant: 'destructive',
@@ -67,11 +62,33 @@ export default function BookDetailsPage() {
         });
       } else if (result.data?.summary) {
         const updatedBook = { ...book, summary: result.data.summary };
-        setBook(updatedBook);
         updateBook({id: book.id, summary: result.data.summary});
+        setBook(updatedBook);
       }
     });
   };
+
+  const handleCreateAudiobook = () => {
+    if (!book || !book.content) return;
+    startConversionTransition(async () => {
+        const result = await generateAudiobookAction({ bookContent: book.content as string });
+        if (result.error) {
+            toast({ variant: 'destructive', title: 'Audiobook Creation Failed', description: result.error });
+        } else if (result.data) {
+            const updatedBook = { ...book, audioChapters: result.data.chapters, type: 'audio' as const };
+            updateBook({id: book.id, audioChapters: result.data.chapters, type: 'audio'});
+            setBook(updatedBook);
+            toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated.' });
+        }
+    });
+  };
+
+  const handleCreateTextVersion = () => {
+    // Placeholder for Speech-to-Text functionality
+    startConversionTransition(async () => {
+        toast({ title: 'Coming Soon!', description: 'Speech-to-text conversion is not yet available.'});
+    });
+  }
   
   const handleDeleteBook = () => {
     if (!book) return;
@@ -90,6 +107,8 @@ export default function BookDetailsPage() {
       </div>
     );
   }
+  
+  const hasAudio = book.audioChapters && book.audioChapters.length > 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -115,14 +134,42 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
             <div className="space-y-2">
-              <Button size="lg" className="w-full font-bold">
-                <BookOpen className="mr-2 h-5 w-5" />
-                Read Now
-              </Button>
-              <Button size="lg" variant="secondary" className="w-full">
-                <Headphones className="mr-2 h-5 w-5" />
-                Listen to Audiobook
-              </Button>
+                {book.type === 'text' && !hasAudio && (
+                    <>
+                        <Button size="lg" className="w-full font-bold">
+                            <BookOpen className="mr-2 h-5 w-5" />
+                            Read Now
+                        </Button>
+                        <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
+                            {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
+                            {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
+                        </Button>
+                    </>
+                )}
+                 {book.type === 'audio' && book.content && (
+                    <>
+                        <Button size="lg" className="w-full font-bold">
+                            <BookOpen className="mr-2 h-5 w-5" />
+                            Read Now
+                        </Button>
+                         <Button size="lg" variant="secondary" className="w-full font-bold">
+                            <Headphones className="mr-2 h-5 w-5" />
+                            Listen Now
+                        </Button>
+                    </>
+                )}
+                {book.type === 'audio' && !book.content && (
+                    <>
+                        <Button size="lg" className="w-full font-bold">
+                            <Headphones className="mr-2 h-5 w-5" />
+                            Listen Now
+                        </Button>
+                         <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
+                            {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
+                            {isConverting ? 'Creating Text...' : 'Create Text Version'}
+                        </Button>
+                    </>
+                )}
             </div>
              <div className="space-y-2">
                 <EditBookDialog book={book}>
@@ -202,6 +249,25 @@ export default function BookDetailsPage() {
                 )}
               </CardContent>
             </Card>
+
+            {hasAudio && book.audioChapters && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="font-headline flex items-center gap-2">
+                            <Headphones className="text-primary w-5 h-5"/>
+                            Audiobook Chapters
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {book.audioChapters.map((chapter, index) => (
+                            <div key={index} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
+                               <p className="font-semibold flex-1">{chapter.title}</p>
+                               <audio controls src={chapter.audioDataUri} className="w-full max-w-xs h-10" />
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
 
             <Card className="bg-accent/20">
               <CardContent className="p-6 text-center">

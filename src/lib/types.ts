@@ -1,5 +1,6 @@
 export interface Book {
   id: string;
+  type: 'text' | 'audio';
   title: string;
   author: string;
   coverImage: string;
@@ -7,7 +8,8 @@ export interface Book {
   description: string;
   tags: string[];
   language: string;
-  content: string; // The full text of the book, can be empty for EPUBs initially
+  content: string; // Full text for text books
+  audioChapters?: { title: string; audioDataUri: string }[]; // Audio data for audiobooks
   summary?: string;
   readingProgress: number; // Percentage 0-100
 }

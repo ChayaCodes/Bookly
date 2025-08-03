@@ -18,10 +18,7 @@ import { useRouter } from 'next/navigation';
 import type { Book } from '@/lib/types';
 import * as pdfjsLib from 'pdfjs-dist';
 
-pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
-  'pdfjs-dist/build/pdf.worker.min.js',
-  import.meta.url,
-).toString();
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
 
 const FormSchema = z.object({
@@ -91,6 +88,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         
         let initialBook: Book = {
           id: bookId,
+          type: 'text',
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
           author: 'Unknown',
           description: '',
@@ -184,7 +182,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
         form.reset();
         setIsOpen(false);
-        router.push(`/books/edit/${bookId}`);
         
         // Asynchronous AI Processing only if we have text content
         const textForAi = bookTextContent.slice(0, 10000);
@@ -203,7 +200,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
                     if (result.data.author && isAuthorDefault) updatePayload.author = result.data.author;
                     if (result.data.description && isDescriptionDefault) updatePayload.description = result.data.description;
-                    if (result.data.tags?.length && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
+                    if (result.data.tags?.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
+
 
                     // Only update if there's something to update
                     if (Object.keys(updatePayload).length > 0) {
@@ -219,6 +217,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 }
             });
         }
+        router.push(`/books/edit/${bookId}`);
 
       } catch (error) {
         console.error("Error processing book:", error);
