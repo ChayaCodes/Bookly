@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -92,11 +93,11 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     
     // Optimistically add to UI
     setBooks(prevBooks => getCombinedBooks(prevBooks, [book]));
-    setPendingBook(book); // Clear pending book state from form
-
-    const { localFile, ...bookDataToSave } = book;
+    setPendingBook(null); // Clear pending book state from form
 
     try {
+        const { localFile } = book;
+
         // 1. Upload main file (book or zip)
         let storagePath = `books/${book.id}/${localFile.name}`;
         if(book.type === 'audio') {
@@ -114,8 +115,8 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
             book.coverImage = await getDownloadURL(coverRef);
         }
 
-        // 3. Save metadata to Firestore
-        const { status, ...firestoreData } = book; // Don't save client-side status
+        // 3. Save metadata to Firestore - STRIPPING OUT CLIENT-SIDE FIELDS
+        const { status, localFile: lf, ...firestoreData } = book; 
         await setDoc(doc(db, "books", book.id), firestoreData);
         
         // 4. Trigger server-side processing for audio or AI cover
