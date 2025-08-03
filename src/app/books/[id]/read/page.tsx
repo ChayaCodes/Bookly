@@ -55,7 +55,6 @@ export default function BookReaderPage() {
     }, [params.id, findBookById]);
 
     const goBack = () => {
-        // Navigate back to the book details page
         router.push(`/books/${params.id}`);
     }
 
@@ -68,13 +67,13 @@ export default function BookReaderPage() {
             case 'text':
                 return <TextViewer fileContent={fileContent} />;
             case 'pdf':
-                return <p>PDF viewer is not implemented yet.</p>;
+                return <div className="text-center p-8">PDF viewer is not implemented yet.</div>;
             default:
-                return <p>Unsupported book type.</p>;
+                return <div className="text-center p-8">Unsupported book type.</div>;
         }
     }
 
-    if (isLoading) {
+    if (isLoading && !fileContent) {
         return (
             <div className="flex h-screen items-center justify-center">
                 <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -86,20 +85,19 @@ export default function BookReaderPage() {
     return (
         <div className="min-h-screen bg-background text-foreground flex flex-col">
              <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b">
-                <div className="container mx-auto p-4 flex items-center justify-between">
+                <div className="container mx-auto p-2 flex items-center justify-between">
                     <Button variant="ghost" onClick={goBack}>
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back to Details
                     </Button>
-                    <div className="text-center">
-                        <h1 className="font-headline text-xl font-bold truncate">{book?.title}</h1>
-                        <p className="text-sm text-muted-foreground">{book?.author}</p>
+                    <div className="text-center overflow-hidden">
+                        <h1 className="font-headline text-lg font-bold truncate">{book?.title}</h1>
                     </div>
                     {/* Placeholder for future controls like font size, etc. */}
-                    <div className="w-24"></div>
+                    <div className="w-32"></div>
                 </div>
             </header>
-            <main className="flex-1 container mx-auto">
+            <main className="flex-1 w-full max-w-4xl mx-auto py-4">
                 {error ? (
                      <Card className="max-w-3xl mx-auto mt-8">
                         <CardHeader><CardTitle>Error</CardTitle></CardHeader>
