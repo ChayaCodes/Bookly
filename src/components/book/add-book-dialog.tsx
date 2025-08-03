@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -65,7 +66,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     try {
       toast({
         title: 'Processing Book...',
-        description: `Please wait while we analyze "${file.name}".`,
+        description: `Please wait while we analyze "${file.name}". This may take a moment.`,
       });
 
       const fileDataUrl = await fileToDataURL(file);
@@ -77,6 +78,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         fileDataUrl,
         metadata: { title: fileName } // Default title
       };
+      
+      let textContentForAI = '';
 
       if (fileType === 'application/epub+zip') {
           const arrayBuffer = await fileToArrayBuffer(file);
@@ -86,10 +89,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
           pendingBook.metadata.title = metadata.title || fileName;
           pendingBook.metadata.author = metadata.creator || 'Unknown';
-          pendingBook.metadata.description = metadata.description || 'No description found in EPUB.';
+          pendingBook.metadata.description = metadata.description || '';
           if (coverUrl) {
             const coverBlob = await fetch(coverUrl).then(r => r.blob());
-            pendingBook.coverPreviewUrl = URL.createObjectURL(coverBlob);
+            pendingBook.coverPreviewUrl = await fileToDataURL(new File([coverBlob], 'cover.png', {type: coverBlob.type}));
           }
 
       } else if (fileType === 'application/pdf') {
@@ -105,23 +108,29 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           pendingBook.coverPreviewUrl = canvas.toDataURL();
           pendingBook.metadata.title = fileName;
           
-          // For PDFs, we still call the AI for text-based metadata
+          // Extract text for AI
           const firstPageText = await page.getTextContent();
-          const text = firstPageText.items.map(item => (item as any).str).join(' ');
-          const result = await extractMetadataAction({ fileName: file.name, fileText: text });
-          if (!result.error && result.data) {
-             pendingBook.metadata = {...pendingBook.metadata, ...result.data};
-          }
+          textContentForAI = firstPageText.items.map(item => (item as any).str).join(' ');
 
-      } else { // TXT, ZIP, etc.
-          // For simple text files, we can call the AI directly
-          const text = await file.text();
-          const result = await extractMetadataAction({ fileName: file.name, fileText: text });
-          if (!result.error && result.data) {
-             pendingBook.metadata = result.data;
-          } else {
-             pendingBook.metadata.title = fileName;
-          }
+      } else { // TXT, MD, etc.
+          textContentForAI = await file.text();
+          pendingBook.metadata.title = fileName;
+      }
+      
+      // If we have text content, call the AI for metadata enhancement
+      if(textContentForAI) {
+        toast({ title: 'Asking AI for details...', description: 'Generating description and tags...' });
+        const result = await extractMetadataAction({ fileName: file.name, fileText: textContentForAI });
+        if (!result.error && result.data) {
+           // Merge AI data with existing data, giving precedence to already extracted data
+           pendingBook.metadata.title = pendingBook.metadata.title || result.data.title;
+           pendingBook.metadata.author = pendingBook.metadata.author || result.data.author;
+           pendingBook.metadata.description = pendingBook.metadata.description || result.data.description;
+           pendingBook.metadata.tags = result.data.tags;
+           pendingBook.metadata['data-ai-hint'] = result.data['data-ai-hint'];
+        } else if (result.error) {
+            toast({ variant: 'destructive', title: 'AI Processing Failed', description: result.error });
+        }
       }
       
       setPendingBook(pendingBook);
@@ -222,3 +231,5 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
+
+    
