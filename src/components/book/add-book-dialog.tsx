@@ -176,7 +176,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
                     if (result.data.author && isAuthorDefault) updatePayload.author = result.data.author;
                     if (result.data.description && isDescriptionDefault) updatePayload.description = result.data.description;
-                    if (result.data.tags && result.data.tags.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
+                    if (result.data.tags?.length && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
 
                     // Only update if there's something to update
                     if (Object.keys(updatePayload).length > 0) {
@@ -306,5 +306,3 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
-
-    
