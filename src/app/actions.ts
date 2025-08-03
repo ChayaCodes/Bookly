@@ -41,9 +41,9 @@ export async function uploadBookAction(values: z.infer<typeof uploadSchema>): Pr
         };
         const docRef = await addDoc(collection(db, "books"), placeholder);
         bookId = docRef.id;
-        console.log("Created placeholder book document:", bookId);
+        console.log("✅ Firestore record created (placeholder):", { id: bookId, ...placeholder });
     } catch (e: any) {
-        console.error("Failed to create initial book in Firestore:", e);
+        console.error("❌ Failed to create initial book in Firestore:", e);
         return { error: 'Failed to create book record in the database.' };
     }
 
@@ -53,18 +53,18 @@ export async function uploadBookAction(values: z.infer<typeof uploadSchema>): Pr
 
     try {
         await uploadString(storageRef, fileDataUrl, 'data_url');
-        console.log(`[${bookId}] Upload successful for:`, storagePath);
+        console.log(`[${bookId}] ✅ Upload successful for:`, storagePath);
         
         // Update the book document with the storage path
         await updateDoc(doc(db, "books", bookId), { storagePath });
-        console.log(`[${bookId}] Updated book with storagePath.`);
+        console.log(`[${bookId}] ✅ Firestore record updated with storagePath.`);
 
         // 3. Trigger background processing (DO NOT await this)
         processBookInBackground(bookId, storagePath);
 
         return { bookId: bookId };
     } catch (e: any) {
-        console.error(`[${bookId}] Server-side upload failed:`, e);
+        console.error(`[${bookId}] ❌ Server-side upload failed:`, e);
         const errorMessage = e.message || 'An unknown error occurred during file upload.';
         await updateDoc(doc(db, 'books', bookId), { description: `File upload failed: ${errorMessage}` });
         return { error: errorMessage };
@@ -75,7 +75,7 @@ export async function uploadBookAction(values: z.infer<typeof uploadSchema>): Pr
 async function processBookInBackground(bookId: string, storagePath: string) {
     const bookDocRef = doc(db, "books", bookId);
     try {
-        console.log(`[${bookId}] Starting background processing...`);
+        console.log(`[${bookId}] ⏳ Starting background processing...`);
         const fileRef = ref(storage, storagePath);
         const blob = await getBlob(fileRef);
         
@@ -84,16 +84,16 @@ async function processBookInBackground(bookId: string, storagePath: string) {
         const truncatedText = bookText.slice(0, 15000);
 
         // Generate Metadata
-        console.log(`[${bookId}] Generating metadata...`);
+        console.log(`[${bookId}] 🧠 Generating metadata...`);
         const metadata = await generateBookMetadata({ bookText: truncatedText });
-        console.log(`[${bookId}] Generated metadata:`, metadata);
+        console.log(`[${bookId}] 🤖 AI-Generated Metadata:`, metadata);
 
         const updatePayload: Partial<Book> = { ...metadata, description: metadata.description || 'No description generated.' };
         await updateDoc(bookDocRef, updatePayload);
-        console.log(`[${bookId}] Updated Firestore with metadata.`);
+        console.log(`[${bookId}] ✅ Firestore record updated with metadata.`);
 
         // Generate Cover Image
-        console.log(`[${bookId}] Generating cover image...`);
+        console.log(`[${bookId}] 🎨 Generating cover image...`);
         const coverResult = await generateBookCover({
             title: metadata.title,
             description: metadata.description,
@@ -105,10 +105,10 @@ async function processBookInBackground(bookId: string, storagePath: string) {
             await uploadString(coverImageRef, coverResult.coverImage, 'data_url');
             const downloadURL = await getDownloadURL(coverImageRef);
             await updateDoc(bookDocRef, { coverImage: downloadURL });
-            console.log(`[${bookId}] Updated Firestore with cover image URL: ${downloadURL}`);
+            console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL: ${downloadURL}`);
         }
     } catch (e: any) {
-        console.error(`[${bookId}] Background processing failed:`, e);
+        console.error(`[${bookId}] ❌ Background processing failed:`, e);
         const errorMessage = e.message || 'An unknown error occurred during AI processing.';
         await updateDoc(bookDocRef, { author: 'Error', description: `AI processing failed: ${errorMessage}` });
     }
