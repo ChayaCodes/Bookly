@@ -59,7 +59,10 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
         ...book,
         createdAt: Date.now(),
      });
-     return { id: docRef.id, ...book } as Book;
+     const newBook = { id: docRef.id, createdAt: Date.now(), ...book }
+     // Manually add to local state to avoid waiting for snapshot listener
+     setBooks(prevBooks => [newBook as Book, ...prevBooks]);
+     return newBook as Book;
   };
 
   const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
