@@ -1,20 +1,26 @@
 
 "use client";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
-import type { Book } from '@/lib/types';
-import { getArrayBufferFromStorage } from '@/app/actions';
+import type { Book, Chapter } from '@/lib/types';
 import { Loader2 } from 'lucide-react';
 import { AudioPlayer } from '@/components/book/audio-player';
+import { getDownloadURL, ref } from 'firebase/storage';
+import { storage } from '@/lib/firebase';
+
+type ChapterWithUrl = {
+    title: string;
+    url: string;
+}
 
 export default function ListenPage() {
     const params = useParams();
     const router = useRouter();
     const { findBookById } = useBookLibrary();
     const [book, setBook] = useState<Book | null>(null);
-    const [audioFiles, setAudioFiles] = useState<{name: string, url: string}[]>([]);
+    const [chapters, setChapters] = useState<ChapterWithUrl[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -22,7 +28,7 @@ export default function ListenPage() {
         const bookId = params.id as string;
         if (!bookId) return;
 
-        const loadBook = async () => {
+        const loadBookAndChapters = async () => {
             setIsLoading(true);
             try {
                 const bookData = await findBookById(bookId);
@@ -31,34 +37,20 @@ export default function ListenPage() {
                     return;
                 }
                 setBook(bookData);
-                
-                const audioPath = bookData.audioStoragePath || bookData.storagePath;
-                if (!audioPath) {
-                    setError("No audio source found for this book.");
+
+                if (!bookData.chapters || bookData.chapters.length === 0) {
+                    setError("No audio chapters found for this book.");
                     return;
                 }
-
-                const JSZip = (await import('jszip')).default;
-
-                const zipBase64 = await getArrayBufferFromStorage(audioPath);
-                const zip = await JSZip.loadAsync(Buffer.from(zipBase64, 'base64'));
                 
-                const chapterPromises = Object.keys(zip.files)
-                    .filter(fileName => !zip.files[fileName].dir && (fileName.toLowerCase().endsWith('.mp3') || fileName.toLowerCase().endsWith('.m4a') || fileName.toLowerCase().endsWith('.wav')))
-                    .sort()
-                    .map(async (fileName) => {
-                        const fileData = await zip.files[fileName].async('blob');
-                        const url = URL.createObjectURL(fileData);
-                        return { name: fileName.replace(/\.[^/.]+$/, ""), url };
-                    });
+                const chapterPromises = bookData.chapters.map(async (chapter: Chapter) => {
+                    const storageRef = ref(storage, chapter.storagePath);
+                    const url = await getDownloadURL(storageRef);
+                    return { title: chapter.title, url };
+                });
 
-                const chapters = await Promise.all(chapterPromises);
-                
-                if (chapters.length === 0) {
-                    setError("No valid audio files (.mp3, .m4a, .wav) were found in the uploaded ZIP file.");
-                } else {
-                    setAudioFiles(chapters);
-                }
+                const fetchedChapters = await Promise.all(chapterPromises);
+                setChapters(fetchedChapters);
 
             } catch (e: any) {
                 setError(`Failed to load audiobook: ${e.message}`);
@@ -67,7 +59,7 @@ export default function ListenPage() {
             }
         };
 
-        loadBook();
+        loadBookAndChapters();
     }, [params.id, findBookById]);
 
 
@@ -92,11 +84,13 @@ export default function ListenPage() {
         )
     }
 
-    if (!book || audioFiles.length === 0) {
+    if (!book || chapters.length === 0) {
         return null; // Should be handled by loading/error states
     }
 
     return (
-        <AudioPlayer book={book} chapters={audioFiles} />
+        <AudioPlayer book={book} chapters={chapters} />
     );
 }
+
+    

@@ -1,4 +1,10 @@
+
 import { GenerateBookMetadataOutput } from "@/ai/flows/generate-book-metadata";
+
+export interface Chapter {
+  title: string;
+  storagePath: string;
+}
 
 export interface Book {
   id: string; // Document ID in Firestore
@@ -10,8 +16,8 @@ export interface Book {
   description: string;
   tags: string[];
   language: string;
-  storagePath?: string; // Path to the original file in Firebase Storage
-  audioStoragePath?: string; // Path to the generated audiobook file
+  storagePath?: string; // Path to the original file for text/epub/pdf
+  chapters?: Chapter[]; // Array of chapter details for audiobooks
   summary?: string;
   readingProgress: number; // Percentage 0-100
   createdAt: number; // Timestamp
@@ -24,3 +30,5 @@ export interface PendingBook {
     metadata: Partial<GenerateBookMetadataOutput> & { title: string }; // Title is mandatory
     coverPreviewUrl?: string; // Used for client-side preview (can be blob or data URL)
 }
+
+    

@@ -15,7 +15,7 @@ import type { Book, PendingBook } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent } from '../ui/card';
-import { saveBookAction, triggerAICoverGeneration } from '@/app/actions';
+import { saveBookAction, triggerAICoverGeneration, handleAudioUploadAction } from '@/app/actions';
 import { Loader2, Upload } from 'lucide-react';
 import { storage } from '@/lib/firebase';
 import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
@@ -88,7 +88,11 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
   const fileToDataURL = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
+        reader.onloadend = () => {
+            const result = reader.result as string;
+            // For base64, remove the data URI prefix
+            resolve(result.includes(',') ? result.split(',')[1] : result);
+        }
         reader.onerror = reject;
         reader.readAsDataURL(file);
     });
@@ -101,7 +105,6 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
         try {
             toast({ title: 'Saving Book...', description: 'Saving details to the database.' });
             
-            // Step 1: Save metadata to Firestore via Server Action
             const metadataResult = await saveBookAction({
                 ...data,
                 tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
@@ -112,30 +115,33 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
 
             if (metadataResult.error) throw new Error(metadataResult.error);
 
-            const { bookId, storagePath } = metadataResult;
+            const { bookId } = metadataResult;
 
-            // Step 2: Upload main file directly from client
-            toast({ title: 'Uploading File...', description: 'Please wait while the book is uploaded.' });
-            const bookFileRef = ref(storage, storagePath);
-            await uploadBytes(bookFileRef, pendingBook.file);
-            console.log("✅ Main book file uploaded to:", storagePath);
+            if (pendingBook.type === 'audio') {
+                 toast({ title: 'Extracting Audio...', description: 'Please wait, this may take a moment.' });
+                 const zipFileBase64 = await fileToDataURL(pendingBook.file);
+                 const audioResult = await handleAudioUploadAction({ bookId, zipFileBase64 });
+                 if(audioResult.error) throw new Error(audioResult.error);
+            } else {
+                toast({ title: 'Uploading File...', description: 'Please wait while the book is uploaded.' });
+                const bookFileRef = ref(storage, metadataResult.storagePath);
+                await uploadBytes(bookFileRef, pendingBook.file);
+                console.log("✅ Main book file uploaded to:", metadataResult.storagePath);
+            }
 
-            // Step 3: Handle cover image
             let coverDataUrl = (book as PendingBook).coverPreviewUrl || null;
             if(newCoverFile) {
-                coverDataUrl = await fileToDataURL(newCoverFile);
+                const newCoverDataUrl = await fileToDataURL(newCoverFile);
+                coverDataUrl = `data:${newCoverFile.type};base64,${newCoverDataUrl}`;
             }
 
             if (coverDataUrl) {
-                // If there's a cover (from epub or user upload), upload it
                 const coverImageRef = ref(storage, `covers/${bookId}.png`);
                 await uploadString(coverImageRef, coverDataUrl, 'data_url');
                 const downloadURL = await getDownloadURL(coverImageRef);
-                // Update firestore record with coverImage URL (client side update)
                 await updateBook({ id: bookId, coverImage: downloadURL });
                 console.log(`✅ Cover image uploaded and record updated.`);
             } else if (pendingBook.type !== 'audio') {
-                // If no cover, trigger AI generation in the background
                 triggerAICoverGeneration(bookId);
             }
 
@@ -151,9 +157,10 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
     } else {
         const existingBook = book as Book;
         try {
-            let coverDataUrl: string | null = null;
+            let coverUploadUrl: string | null = null;
             if (newCoverFile) {
-                coverDataUrl = await fileToDataURL(newCoverFile);
+                const newCoverDataUrl = await fileToDataURL(newCoverFile);
+                coverUploadUrl = `data:${newCoverFile.type};base64,${newCoverDataUrl}`;
             }
             
             const updatedBook: Partial<Book> & {id: string, coverDataUrl?: string | null} = {
@@ -163,7 +170,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
               description: data.description || '',
               language: data.language,
               tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-              coverDataUrl: coverDataUrl
+              coverDataUrl: coverUploadUrl
             };
 
             await updateBook(updatedBook);
@@ -201,7 +208,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
         return (
             <div className="w-full h-full flex flex-col items-center justify-center bg-muted rounded-md text-muted-foreground p-4 text-center">
                 <p className="text-sm font-medium">Audio Book</p>
-                <p className="text-xs">A cover can be added after saving.</p>
+                <p className="text-xs">You can add a cover image.</p>
             </div>
         )
     }
@@ -238,7 +245,10 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
                 onChange={handleCoverChange}
             />
             <p className="text-xs text-muted-foreground">
-                {isNewBook && !(book as PendingBook).coverPreviewUrl ? "A cover will be generated by AI if one isn't extracted or uploaded." : ""}
+                {isNewBook && !(book as PendingBook).coverPreviewUrl && (book as PendingBook).type !== 'audio'
+                    ? "A cover will be generated by AI if one isn't extracted or uploaded."
+                    : ""
+                }
             </p>
         </div>
 

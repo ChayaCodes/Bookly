@@ -7,9 +7,10 @@ import { generateAudiobook } from '@/ai/flows/generate-audiobook';
 import { generateBookCover } from '@/ai/flows/generate-book-cover';
 import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
-import { ref, uploadString, getDownloadURL, getBytes } from 'firebase/storage';
+import { ref, uploadString, getDownloadURL, getBytes, uploadBytes } from 'firebase/storage';
 import { doc, updateDoc, addDoc, collection, Timestamp, getDoc } from 'firebase/firestore';
-import type { Book } from '@/lib/types';
+import type { Book, Chapter } from '@/lib/types';
+import JSZip from 'jszip';
 
 
 // Action to process text and return metadata WITHOUT saving
@@ -67,18 +68,17 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     const { fileName, type, ...bookMetadata } = validation.data;
 
     let bookId: string;
-    // Differentiate storage path based on type
+    
     const storagePath = type === 'audio' 
-        ? `audiobooks/${Date.now()}_${fileName}` 
+        ? `audiobooks_zips/${Date.now()}_${fileName}` // Keep zip for temp processing
         : `books/${Date.now()}_${fileName}`;
 
     try {
-        const newBookData: Omit<Book, 'id' | 'coverImage'> = {
+        // For audio, we won't set a path initially, as they will be individual chapter paths.
+        const newBookData: Omit<Book, 'id' | 'coverImage' | 'chapters'> = {
             ...bookMetadata,
             type: type,
-            // Conditionally set the correct path
-            storagePath: type !== 'audio' ? storagePath : undefined,
-            audioStoragePath: type === 'audio' ? storagePath : undefined,
+            ...(type !== 'audio' && { storagePath }),
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };
@@ -95,6 +95,69 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
         return { error: 'Failed to create book record in the database.' };
     }
 }
+
+
+const audioUploadSchema = z.object({
+  bookId: z.string(),
+  zipFileBase64: z.string(),
+});
+
+export async function handleAudioUploadAction(values: z.infer<typeof audioUploadSchema>): Promise<{ success: boolean } | { error: string }> {
+    const validation = audioUploadSchema.safeParse(values);
+    if (!validation.success) {
+        return { error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
+    }
+    
+    const { bookId, zipFileBase64 } = validation.data;
+    console.log(`[${bookId}] 🎵 Starting audio upload and extraction process...`);
+    
+    try {
+        const zip = await JSZip.loadAsync(Buffer.from(zipFileBase64, 'base64'));
+        const chapterPromises: Promise<Chapter>[] = [];
+        const audioFiles = Object.keys(zip.files).filter(fileName => 
+            !zip.files[fileName].dir && /\.(mp3|m4a|wav)$/i.test(fileName)
+        );
+
+        // Natural sort for filenames like "Chapter 1", "Chapter 10", "Chapter 2"
+        audioFiles.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' }));
+
+        for (const fileName of audioFiles) {
+            const file = zip.files[fileName];
+            console.log(`[${bookId}] -> Processing file: ${fileName}`);
+            
+            const p = (async () => {
+                const audioBuffer = await file.async('nodebuffer');
+                const chapterPath = `audiobooks/${bookId}/${fileName}`;
+                const chapterRef = ref(storage, chapterPath);
+                
+                await uploadBytes(chapterRef, audioBuffer, { contentType: file.comment || 'audio/mpeg' });
+                
+                return {
+                    title: fileName.replace(/\.[^/.]+$/, ""),
+                    storagePath: chapterPath
+                };
+            })();
+            chapterPromises.push(p);
+        }
+
+        const chapters = await Promise.all(chapterPromises);
+        
+        if (chapters.length === 0) {
+            return { error: "No valid audio files (.mp3, .m4a, .wav) were found in the ZIP." };
+        }
+
+        const bookDocRef = doc(db, "books", bookId);
+        await updateDoc(bookDocRef, { chapters: chapters });
+
+        console.log(`[${bookId}] ✅ Successfully uploaded and processed ${chapters.length} chapters.`);
+        return { success: true };
+
+    } catch (e: any) {
+        console.error(`[${bookId}] ❌ Audio processing failed:`, e);
+        return { error: `Server-side audio processing failed: ${e.message}` };
+    }
+}
+
 
 // This action is now called *after* the client has uploaded the cover.
 export async function triggerAICoverGeneration(bookId: string) {
@@ -215,7 +278,8 @@ export async function generateAudiobookAction(input: {storagePath: string}) {
     const bookContent = await getTextContentFromStorage(input.storagePath);
     const audiobook = await generateAudiobook({ bookContent });
     return { data: audiobook, error: null };
-  } catch (e: any) {
+  } catch (e: any)
+{
     console.error("Audiobook generation failed:", e);
     return { data: null, error: `Failed to generate audiobook: ${e.message || 'Please try again.'}` };
   }
