@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
-import { ArrowLeft, Loader2, Save } from 'lucide-react';
+import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { EditBookDialog } from '@/components/book/edit-book-dialog';
 
@@ -19,9 +19,14 @@ export default function EditBookPage() {
       const foundBook = findBookById(params.id as string);
       if (foundBook) {
         setBook(foundBook);
+      } else {
+        // If book not found, maybe it's still being added.
+        // A better UX might show a loading state and retry.
+        // For now, redirect to library.
+        router.push('/');
       }
     }
-  }, [params.id, findBookById]);
+  }, [params.id, findBookById, router]);
 
   if (!book) {
     return (

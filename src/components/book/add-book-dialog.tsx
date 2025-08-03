@@ -155,8 +155,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           description: `"${initialBook.title}" is being processed.`,
         });
 
-        setIsOpen(false);
         form.reset();
+        setIsOpen(false);
         router.push(`/books/edit/${bookId}`);
         
         // Asynchronous AI Processing only if we have text content
@@ -301,5 +301,3 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
-
-    
