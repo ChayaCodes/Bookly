@@ -7,39 +7,73 @@ import { generateBookCover, GenerateBookCoverInput } from '@/ai/flows/generate-b
 import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
 import { ref, getBlob, uploadString, getDownloadURL } from 'firebase/storage';
-import { doc, updateDoc, getDoc } from 'firebase/firestore';
+import { doc, updateDoc, getDoc, addDoc, collection } from 'firebase/firestore';
 import type { Book } from '@/lib/types';
 
 
 const uploadSchema = z.object({
-  bookId: z.string(),
   fileName: z.string(),
   fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
 });
 
-export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Promise<{ storagePath: string | null, error: string | null }> {
+export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Promise<{ bookId: string | null, error: string | null }> {
     const validation = uploadSchema.safeParse(input);
     if (!validation.success) {
-        return { storagePath: null, error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
+        return { bookId: null, error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
     }
     
-    const { bookId, fileName, fileDataUrl } = validation.data;
+    const { fileName, fileDataUrl } = validation.data;
+    
+    // Create an initial placeholder document in Firestore
+    let bookId: string;
+    try {
+        const initialBook: Omit<Book, 'id' | 'createdAt'> = {
+            type: 'text',
+            title: fileName.replace(/\.[^/.]+$/, ""),
+            author: 'Processing...',
+            description: 'Your book is being uploaded and processed. Metadata will appear here shortly.',
+            tags: ['new'],
+            coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Processing`,
+            'data-ai-hint': 'book cover',
+            language: 'English',
+            readingProgress: 0,
+        };
+        const docRef = await addDoc(collection(db, "books"), initialBook);
+        bookId = docRef.id;
+        console.log("Created initial book document:", bookId);
+    } catch (e: any) {
+        console.error("Failed to create initial book in Firestore:", e);
+        return { bookId: null, error: 'Failed to create book record in the database.' };
+    }
+
     const storagePath = `books/${bookId}-${fileName}`;
     const storageRef = ref(storage, storagePath);
 
     try {
+        // Upload the file to Firebase Storage
         await uploadString(storageRef, fileDataUrl, 'data_url');
         console.log("Upload successful for:", storagePath);
-        return { storagePath: storagePath, error: null };
+        
+        // Update the book document with the storage path
+        await updateDoc(doc(db, "books", bookId), { storagePath });
+        console.log(`Updated book ${bookId} with storagePath.`);
+
+        // Trigger the metadata generation in the background (don't await)
+        generateMetadataAction({ bookId: bookId, storagePath: storagePath });
+
+        return { bookId: bookId, error: null };
     } catch (e: any) {
         console.error("Server-side upload failed:", e);
+        // Update the book with an error state
+        await updateDoc(doc(db, 'books', bookId), { description: `File upload failed: ${e.message}` }).catch(err => console.error("Failed to write error state to book", err));
+
+        let errorMessage = "An unknown error occurred during file upload.";
         if (e.code === 'storage/unauthorized') {
-            return { storagePath: null, error: "Upload failed: Permission denied. Your Firebase Storage security rules may not allow unauthenticated writes." };
+            errorMessage = "Upload failed: Permission denied. Your Firebase Storage security rules may not allow unauthenticated writes.";
+        } else if (e.code === 'storage/unknown') {
+            errorMessage = 'An unknown storage error occurred. This might be due to incorrect Firebase Storage setup or rules. Please ensure your rules allow unauthenticated writes if you do not have a login system.';
         }
-        if (e.code === 'storage/unknown') {
-            return { storagePath: null, error: 'An unknown storage error occurred. This might be due to incorrect Firebase Storage setup or rules. Please ensure your rules allow unauthenticated writes if you do not have a login system.' };
-        }
-        return { storagePath: null, error: e.message || "An unknown error occurred during file upload." };
+        return { bookId: null, error: errorMessage };
     }
 }
 
@@ -58,6 +92,9 @@ async function getTextContentFromStorage(storagePath: string): Promise<string> {
         // For now, we are just returning a placeholder text as parsing is complex.
         try {
             const text = await blob.text();
+            if (text.trim().length === 0) {
+                 return "This document appears to be empty or in a format that could not be read as text.";
+            }
             return text;
         } catch (e) {
             console.warn(`Could not read ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
@@ -75,24 +112,28 @@ async function getTextContentFromStorage(storagePath: string): Promise<string> {
 export async function generateMetadataAction(input: {bookId: string, storagePath: string}): Promise<{ data: GenerateBookMetadataOutput | null, error: string | null }> {
   const validation = metadataSchema.safeParse(input);
   if (!validation.success) {
-    return { data: null, error: `Invalid input for metadata generation: ${validation.error.errors.map(e => e.message).join(', ')}` };
+    const error = `Invalid input for metadata generation: ${validation.error.errors.map(e => e.message).join(', ')}`;
+    console.error(error);
+    return { data: null, error };
   }
   
-  const bookDocRef = doc(db, "books", input.bookId);
+  const { bookId, storagePath } = validation.data;
+  const bookDocRef = doc(db, "books", bookId);
 
   try {
     // 1. Generate Metadata
-    const bookText = await getTextContentFromStorage(input.storagePath);
+    console.log(`[${bookId}] Starting metadata generation...`);
+    const bookText = await getTextContentFromStorage(storagePath);
     const metadata = await generateBookMetadata({ bookText: bookText.slice(0, 15000) });
-    console.log(`Generated metadata for ${input.bookId}:`, metadata);
-
+    console.log(`[${bookId}] Generated metadata:`, metadata);
 
     // 2. Update Firestore with new metadata
     const updatePayload: Partial<Book> = { ...metadata, description: metadata.description || 'No description generated.' };
     await updateDoc(bookDocRef, updatePayload);
-    console.log(`Updated Firestore for ${input.bookId} with metadata.`);
+    console.log(`[${bookId}] Updated Firestore with metadata.`);
 
     // 3. Generate Cover Image (asynchronously, don't wait for it)
+    console.log(`[${bookId}] Triggering cover generation in the background.`);
     generateBookCover({
         title: metadata.title,
         description: metadata.description,
@@ -100,21 +141,20 @@ export async function generateMetadataAction(input: {bookId: string, storagePath
     }).then(async (coverResult) => {
         if (coverResult.coverImage) {
             // coverImage is a data URI, upload it to storage
-            const coverImageRef = ref(storage, `covers/${input.bookId}.png`);
+            const coverImageRef = ref(storage, `covers/${bookId}.png`);
             await uploadString(coverImageRef, coverResult.coverImage, 'data_url');
             const downloadURL = await getDownloadURL(coverImageRef);
 
             await updateDoc(bookDocRef, { coverImage: downloadURL });
-            console.log(`Updated Firestore for ${input.bookId} with cover image URL: ${downloadURL}`);
+            console.log(`[${bookId}] Updated Firestore with cover image URL: ${downloadURL}`);
         }
-    }).catch(e => console.error("Cover generation and upload failed in background:", e));
-
+    }).catch(e => console.error(`[${bookId}] Cover generation and upload failed in background:`, e));
 
     return { data: metadata, error: null };
   } catch (e: any) {
-    console.error("Metadata generation failed:", e);
+    console.error(`[${bookId}] Metadata generation failed:`, e);
     const errorMessage = e.message || 'An unknown error occurred during AI processing.';
-    // Optionally update the book with an error state
+    // Update the book with an error state
     await updateDoc(bookDocRef, { description: `AI processing failed: ${errorMessage}` }).catch(err => console.error("Failed to write error state to book", err));
     return { data: null, error: `Failed to generate metadata: ${errorMessage}` };
   }

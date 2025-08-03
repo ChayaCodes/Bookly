@@ -9,13 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Loader2, Sparkles, UploadCloud } from 'lucide-react';
-import { useBookLibrary } from '@/hooks/use-book-library';
-import { generateMetadataAction, uploadBookAction } from '@/app/actions';
+import { uploadBookAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
-import type { Book } from '@/lib/types';
-import { v4 as uuidv4 } from 'uuid';
-
 
 // Helper to convert a file to a Base64 data URL
 const fileToDataURL = (file: File): Promise<string> => {
@@ -27,18 +23,15 @@ const fileToDataURL = (file: File): Promise<string> => {
     });
 };
 
-
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
     .refine(file => file.size > 0, "File cannot be empty."),
 });
 
-
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [isPending, startTransition] = React.useTransition();
+  const [isUploading, setIsUploading] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook, updateBook } = useBookLibrary();
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -47,97 +40,56 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     const file = data.file;
-    const bookId = uuidv4();
-    let initialBookTitle = file.name.replace(/\.[^/.]+$/, ""); // Filename w/o extension
+    setIsUploading(true);
 
+    try {
+      toast({
+        title: 'Preparing File...',
+        description: `Reading "${file.name}".`,
+      });
 
-    startTransition(async () => {
-      try {
-        // Step 1: UI feedback for starting
-        toast({
-          title: 'Preparing File...',
-          description: `Reading "${file.name}".`,
-        });
+      const fileDataUrl = await fileToDataURL(file);
 
-        // Step 2: Convert file and upload to a temporary location
-        const fileDataUrl = await fileToDataURL(file);
+      toast({
+        title: 'Uploading...',
+        description: `Please wait while "${file.name}" is uploaded and processed.`,
+      });
 
-        toast({
-          title: 'Uploading...',
-          description: `Please wait while "${file.name}" is being uploaded.`,
-        });
-        const uploadResult = await uploadBookAction({
-            bookId: bookId,
-            fileName: file.name,
-            fileDataUrl: fileDataUrl,
-        });
+      const uploadResult = await uploadBookAction({
+          fileName: file.name,
+          fileDataUrl: fileDataUrl,
+      });
 
-        if (uploadResult.error || !uploadResult.storagePath) {
-             toast({
-                variant: 'destructive',
-                title: 'Upload Failed',
-                description: uploadResult.error || 'An unknown error occurred during upload.'
-             });
-             return;
-        }
-        const storagePath = uploadResult.storagePath;
-
-        // Step 3: Create an initial book record in Firestore
-        let initialBook: Omit<Book, 'id'|'createdAt'> = {
-          type: 'text',
-          title: initialBookTitle,
-          author: 'Unknown',
-          description: 'Processing for metadata...',
-          tags: [],
-          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Processing`,
-          'data-ai-hint': 'book cover',
-          language: 'English',
-          readingProgress: 0,
-          storagePath: storagePath,
-        };
-        await addBook({ ...initialBook, id: bookId });
-        console.log(`Added initial book document to Firestore for ${bookId}:`, { ...initialBook, id: bookId });
-
-        
-        toast({
-          title: 'Upload Complete!',
-          description: `Now processing "${initialBook.title}" with AI.`,
-        });
-        
-        // Reset form and close dialog now that upload is done
+      if (uploadResult.error || !uploadResult.bookId) {
+           toast({
+              variant: 'destructive',
+              title: 'Upload Failed',
+              description: uploadResult.error || 'An unknown error occurred during upload.'
+           });
+           return;
+      }
+      
+      toast({
+        title: 'Upload Complete!',
+        description: `"${file.name}" is now being processed by AI.`,
+      });
+      
+      // The book is added via a server action which triggers a firestore update
+      // The `useBookLibrary` hook will see the new book via its real-time listener.
+      
+    } catch (error) {
+      console.error("Error in upload process:", error);
+      toast({
+        variant: 'destructive',
+        title: 'Operation Failed',
+        description: error instanceof Error ? error.message : 'An unexpected error occurred.',
+      });
+    } finally {
+        setIsUploading(false);
+        // Reset form and close dialog after everything is done
         form.reset();
         setIsOpen(false);
-        
-        // Step 4: Generate metadata and update the UI
-        const metadataResult = await generateMetadataAction({ bookId: bookId, storagePath: storagePath });
-
-        if (metadataResult.error || !metadataResult.data) {
-             toast({
-                 variant: 'destructive',
-                 title: 'AI Processing Failed',
-                 description: metadataResult.error,
-             });
-             // Update the book with an error state
-             await updateBook({ id: bookId, description: `AI processing failed. ${metadataResult.error}`});
-        } else {
-              // On success, update the book in the UI with the new data.
-              // Cover image will be updated in the background.
-              await updateBook({id: bookId, ...metadataResult.data});
-              toast({
-                  title: 'AI Update Complete',
-                  description: `"${metadataResult.data.title}" has been enhanced.`,
-              });
-        }
-
-      } catch (error) {
-        console.error("Error in upload process:", error);
-        toast({
-          variant: 'destructive',
-          title: 'Operation Failed',
-          description: error instanceof Error ? error.message : 'An unexpected error occurred.',
-        });
-      }
-    });
+    }
   }
 
   const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => {
@@ -165,13 +117,17 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const handleOpenChange = (open: boolean) => {
+    // Don't allow closing while an upload is in progress
+    if (isUploading) return;
+    setIsOpen(open);
+    if (!open) {
+      form.reset();
+    }
+  }
+
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => {
-      setIsOpen(open);
-      if (!open) {
-        form.reset();
-      }
-    }}>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
@@ -195,7 +151,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     <div
                       className={cn(
                         "relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors",
-                        isDragging && "border-primary bg-muted/50"
+                        isDragging && "border-primary bg-muted/50",
+                        isUploading && "cursor-not-allowed opacity-50"
                       )}
                       onDragEnter={handleDragEnter}
                       onDragLeave={handleDragLeave}
@@ -212,6 +169,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                         className="absolute w-full h-full opacity-0 cursor-pointer"
                         accept=".txt,.epub,.md,.pdf"
                         onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)}
+                        disabled={isUploading}
                       />
                     </div>
                   </FormControl>
@@ -225,8 +183,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
               )}
             />
             <DialogFooter>
-              <Button type="submit" disabled={isPending || !form.formState.isValid} className="w-full">
-                {isPending ? (
+              <Button type="submit" disabled={isUploading || !form.formState.isValid} className="w-full">
+                {isUploading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Processing...
