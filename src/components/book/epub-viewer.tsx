@@ -18,9 +18,11 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
     const renditionRef = useRef<Rendition | null>(null);
 
     useEffect(() => {
-        if (viewerRef.current && fileContent) {
-            // This is the core logic from your example
-            const book = ePub(fileContent);
+        if (viewerRef.current) {
+            // Hardcoded URL for debugging, as requested.
+            const bookUrl = "https://s3.amazonaws.com/moby-dick/OPS/package.opf";
+            
+            const book = ePub(bookUrl);
             const rendition = book.renderTo(viewerRef.current, {
                 width: '100%',
                 height: '100%',
@@ -28,14 +30,13 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
             });
             rendition.display();
             
-            // Store the rendition so we can access it for page turning
             renditionRef.current = rendition;
 
             return () => {
                 book.destroy();
             };
         }
-    }, [fileContent]);
+    }, []); // Use empty dependency array to run only once with the hardcoded URL
 
     useImperativeHandle(ref, () => ({
         nextPage: () => {
