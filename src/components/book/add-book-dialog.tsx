@@ -202,19 +202,27 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     const currentBook = findBookById(bookId);
                     if (!currentBook) return;
 
-                    // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    const isTitleDefault = /untitled/i.test(currentBook.title) || currentBook.title.toLowerCase() === 'untitled document' || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
-                    const isAuthorDefault = /unknown/i.test(currentBook.author);
-                    const isDescriptionDefault = !currentBook.description || /impossible/i.test(currentBook.description) || /blank document/.test(currentBook.description);
 
-                    if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
-                    if (result.data.author && isAuthorDefault) updatePayload.author = result.data.author;
-                    if (result.data.description && isDescriptionDefault) updatePayload.description = result.data.description;
-                    if (result.data.tags?.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
+                    const isTitlePlaceholder = currentBook.title === file.name.replace(/\.[^/.]+$/, "") || /untitled/i.test(currentBook.title);
+                    if (result.data.title && isTitlePlaceholder) {
+                        updatePayload.title = result.data.title;
+                    }
 
+                    const isAuthorPlaceholder = /unknown/i.test(currentBook.author);
+                    if (result.data.author && isAuthorPlaceholder) {
+                        updatePayload.author = result.data.author;
+                    }
+                    
+                    const isDescriptionPlaceholder = !currentBook.description;
+                    if (result.data.description && isDescriptionPlaceholder) {
+                        updatePayload.description = result.data.description;
+                    }
 
-                    // Only update if there's something to update
+                    if (result.data.tags?.length > 0 && currentBook.tags.length === 0) {
+                        updatePayload.tags = result.data.tags;
+                    }
+
                     if (Object.keys(updatePayload).length > 0) {
                         updateBook({
                             id: bookId,
