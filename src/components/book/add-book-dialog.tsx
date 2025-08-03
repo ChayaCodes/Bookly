@@ -169,7 +169,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
                     // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    if (result.data.title && (currentBook.title.includes('.') || currentBook.title === 'Unknown')) updatePayload.title = result.data.title;
+                    const isTitleDefault = currentBook.title.includes('.') || currentBook.title === 'Unknown' || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
+                    if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
                     if (result.data.author && currentBook.author === 'Unknown') updatePayload.author = result.data.author;
                     if (result.data.description && !currentBook.description) updatePayload.description = result.data.description;
                     if (result.data.tags && result.data.tags.length > 0 && currentBook.tags.length === 0) updatePayload.tags = result.data.tags;
@@ -182,7 +183,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                         });
                         toast({
                             title: 'AI Update',
-                            description: `AI has finished processing "${currentBook.title}".`,
+                            description: `AI has finished processing "${updatePayload.title || currentBook.title}".`,
                         });
                     }
                 }
