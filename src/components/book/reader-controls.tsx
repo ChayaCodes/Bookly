@@ -64,7 +64,7 @@ export function ReaderControls({
     return (
         <div className="absolute inset-0 z-10 text-white p-4 group">
             {/* Overlay for mouse detection */}
-            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-t from-black/50 via-transparent to-black/50" />
+            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-black/60 via-black/20 to-black/60" />
             
             {/* Header Controls */}
             <div className="absolute top-0 left-0 right-0 p-4 flex items-center justify-between opacity-0 group-hover:opacity-100 transition-opacity duration-300">
