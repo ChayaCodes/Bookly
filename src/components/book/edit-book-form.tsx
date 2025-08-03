@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -196,6 +197,14 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
     if (coverPreview) {
         return <Image src={coverPreview} alt="Cover preview" layout="fill" objectFit="cover" className="rounded-md" unoptimized/>
     }
+    if( (book as PendingBook).type === 'audio' ){
+        return (
+            <div className="w-full h-full flex flex-col items-center justify-center bg-muted rounded-md text-muted-foreground p-4 text-center">
+                <p className="text-sm font-medium">Audio Book</p>
+                <p className="text-xs">A cover can be added after saving.</p>
+            </div>
+        )
+    }
     return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-muted rounded-md text-muted-foreground p-4 text-center">
             <Loader2 className="h-8 w-8 animate-spin mb-2"/>
@@ -323,3 +332,5 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
 
   return formContent;
 }
+
+    

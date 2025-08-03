@@ -1,3 +1,4 @@
+
 "use server";
 
 import { generateBookMetadata } from '@/ai/flows/generate-book-metadata';
@@ -63,15 +64,21 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     if (!validation.success) {
         return { error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
     }
-    const { fileName, ...bookMetadata } = validation.data;
+    const { fileName, type, ...bookMetadata } = validation.data;
 
     let bookId: string;
-    const storagePath = `books/${Date.now()}_${fileName}`; // Use a more unique path
+    // Differentiate storage path based on type
+    const storagePath = type === 'audio' 
+        ? `audiobooks/${Date.now()}_${fileName}` 
+        : `books/${Date.now()}_${fileName}`;
 
     try {
         const newBookData: Omit<Book, 'id' | 'coverImage'> = {
             ...bookMetadata,
-            storagePath, // Save path immediately
+            type: type,
+            // Conditionally set the correct path
+            storagePath: type !== 'audio' ? storagePath : undefined,
+            audioStoragePath: type === 'audio' ? storagePath : undefined,
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };
@@ -213,3 +220,5 @@ export async function generateAudiobookAction(input: {storagePath: string}) {
     return { data: null, error: `Failed to generate audiobook: ${e.message || 'Please try again.'}` };
   }
 }
+
+    
