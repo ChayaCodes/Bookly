@@ -31,21 +31,10 @@ type EditBookFormProps = {
 }
 
 
-// Helper to convert a file to a Base64 data URL
-const fileToDataURL = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-    });
-};
-
-
 export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
   const [isSaving, setIsSaving] = React.useState(false);
-  const [coverPreview, setCoverPreview] = React.useState<string | null>(isNewBook ? 'https://placehold.co/400x600/9ca3da/2a2e45?text=Generating...' : (book as Book).coverImage);
-  const { updateBook, refreshBooks } = useBookLibrary();
+  const [coverPreview, setCoverPreview] = React.useState<string | null>(isNewBook ? 'https://placehold.co/400x600/9ca3da/2a2e45?text=Generating...' : (book as Book).coverImage || 'https://placehold.co/400x600');
+  const { updateBook, refreshBooks, setPendingBook } = useBookLibrary();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -95,7 +84,8 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
             }
 
             toast({ title: 'Book Added!', description: `"${data.title}" is now in your library.` });
-            refreshBooks();
+            setPendingBook(null); // Clear the pending book
+            refreshBooks(); // Manually trigger a refresh
             router.push('/');
 
         } catch (e: any) {
@@ -134,6 +124,12 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
     }
   }
 
+  const handleCancel = () => {
+      if (isNewBook) {
+          setPendingBook(null);
+      }
+      router.push('/');
+  }
 
   const formContent = (
     <Form {...form}>
@@ -145,7 +141,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
                 <CardContent className="p-2">
                     {coverPreview ? (
                     <div className="relative aspect-[2/3] w-full">
-                        <Image src={coverPreview} alt="Cover preview" fill objectFit="cover" className="rounded-md" />
+                        <Image src={coverPreview} alt="Cover preview" fill objectFit="cover" className="rounded-md" unoptimized/>
                     </div>
                     ) : (
                     <div className="relative aspect-[2/3] w-full bg-muted rounded-md flex items-center justify-center">
@@ -215,11 +211,11 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
             />
         </div>
         <div className="md:col-span-3 flex justify-end gap-2">
-             <Button type="button" variant="ghost" onClick={() => router.back()} disabled={isSaving}>
+             <Button type="button" variant="ghost" onClick={handleCancel} disabled={isSaving}>
                 Cancel
              </Button>
              <Button type="submit" disabled={isSaving}>
-                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Save and Add to Library'}
+                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : isNewBook ? 'Save and Add to Library' : 'Save Changes'}
              </Button>
         </div>
       </form>

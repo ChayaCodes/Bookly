@@ -121,8 +121,9 @@ async function generateCoverInBackground(bookId: string, title: string, descript
             const coverImageRef = ref(storage, `covers/${bookId}.png`);
             await uploadString(coverImageRef, coverResult.coverImage, 'data_url');
             const downloadURL = await getDownloadURL(coverImageRef);
+            console.log(`[${bookId}] ✅ Cover image URL generated: ${downloadURL}`);
             await updateDoc(bookDocRef, { coverImage: downloadURL });
-            console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL: ${downloadURL}`);
+            console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL.`);
         }
     } catch (e: any) {
         console.error(`[${bookId}] ❌ Cover generation failed:`, e);
