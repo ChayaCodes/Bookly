@@ -65,15 +65,17 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
     let coverImageData = book.coverImage;
     if (data.coverImage && data.coverImage instanceof File) {
         coverImageData = await fileToDataURL(data.coverImage);
+    } else {
+        coverImageData = coverPreview; // Ensure preview is saved if no new file
     }
     
-    const updatedBook = {
+    const updatedBook: Partial<Book> & {id: string} = {
       id: book.id,
       title: data.title,
       author: data.author,
       description: data.description || '',
       tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-      coverImage: coverImageData,
+      coverImage: coverImageData || '',
     };
     updateBook(updatedBook);
     toast({
