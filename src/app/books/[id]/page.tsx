@@ -137,8 +137,8 @@ export default function BookDetailsPage() {
     );
   }
   
-  const hasAudio = !!book.audioStoragePath;
-  const hasText = !!book.storagePath;
+  const hasAudio = book.type === 'audio' || !!book.audioStoragePath;
+  const hasText = !!book.storagePath && book.type !== 'audio';
 
   return (
     <div className="min-h-screen bg-background">
