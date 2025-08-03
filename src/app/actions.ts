@@ -51,6 +51,7 @@ const saveBookSchema = z.object({
   author: z.string().min(1),
   description: z.string(),
   tags: z.array(z.string()),
+  language: z.string(),
   'data-ai-hint': z.string(),
   fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
   fileName: z.string().min(1),
@@ -70,7 +71,6 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     try {
         const newBookData: Omit<Book, 'id' | 'coverImage' | 'storagePath'> = {
             ...bookMetadata,
-            language: 'English',
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };

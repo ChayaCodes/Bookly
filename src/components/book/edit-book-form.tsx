@@ -22,6 +22,7 @@ const FormSchema = z.object({
   author: z.string().min(1, 'Author is required.'),
   description: z.string().optional(),
   tags: z.string().optional(),
+  language: z.string().min(1, 'Language is required.'),
 });
 
 type EditBookFormProps = {
@@ -51,6 +52,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
             author: pendingBook.metadata.author || '',
             description: pendingBook.metadata.description || '',
             tags: pendingBook.metadata.tags?.join(', ') || '',
+            language: pendingBook.metadata.language || 'English',
         }
     }
     const existingBook = book as Book;
@@ -59,6 +61,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
         author: existingBook.author,
         description: existingBook.description,
         tags: existingBook.tags?.join(', ') || '',
+        language: existingBook.language || 'English'
     }
   }
 
@@ -137,6 +140,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
               title: data.title,
               author: data.author,
               description: data.description || '',
+              language: data.language,
               tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
               coverDataUrl: coverDataUrl
             };
@@ -255,6 +259,19 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Tags (comma-separated)</FormLabel>
+                  <FormControl>
+                    <Input {...field} disabled={isSaving} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
+              name="language"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Language</FormLabel>
                   <FormControl>
                     <Input {...field} disabled={isSaving} />
                   </FormControl>
