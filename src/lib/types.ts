@@ -3,6 +3,7 @@ export interface Book {
   title: string;
   author: string;
   coverImage: string;
+  'data-ai-hint'?: string;
   description: string;
   tags: string[];
   language: string;
