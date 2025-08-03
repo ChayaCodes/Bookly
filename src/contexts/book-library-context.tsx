@@ -12,139 +12,123 @@ import {
   deleteDoc,
   doc,
   getDoc,
-  setDoc,
-  addDoc,
+  getDocs,
   Timestamp,
 } from 'firebase/firestore';
 import { ref, deleteObject } from "firebase/storage";
 
 interface BookLibraryContextType {
   books: Book[];
-  addBook: (book: Omit<Book, 'id' | 'createdAt'>) => Promise<Book>;
   updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
+  refreshBooks: () => Promise<void>; // Add a manual refresh function
 }
 
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
 
-// Helper to convert Firestore Timestamps to numbers
-const convertTimestamps = (data: any) => {
-    for (const key in data) {
-        if (data[key] instanceof Timestamp) {
-            data[key] = data[key].toMillis();
-        } else if (typeof data[key] === 'object' && data[key] !== null) {
-            convertTimestamps(data[key]);
+const convertTimestamps = (data: any): any => {
+    if (data instanceof Timestamp) {
+        return data.toMillis();
+    }
+    if (Array.isArray(data)) {
+        return data.map(convertTimestamps);
+    }
+    if (typeof data === 'object' && data !== null) {
+        const res: { [key: string]: any } = {};
+        for (const key in data) {
+            res[key] = convertTimestamps(data[key]);
         }
+        return res;
     }
     return data;
-}
+};
 
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
   const [books, setBooks] = React.useState<Book[]>([]);
 
-  React.useEffect(() => {
-    // The "books" collection is created automatically by Firestore if it doesn't exist.
-    const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
+  const fetchBooks = React.useCallback(async () => {
+    try {
+        const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
+        const querySnapshot = await getDocs(q);
+        const booksData = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            ...convertTimestamps(doc.data()),
+        } as Book));
+        setBooks(booksData);
+    } catch (error) {
+        console.error("Error fetching books from Firestore:", error);
+    }
+  }, []);
 
+  // Initial fetch and listen for real-time updates
+  React.useEffect(() => {
+    const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const booksData: Book[] = [];
-      querySnapshot.forEach((doc) => {
-        const data = doc.data();
-        // Firestore Timestamps need to be converted to numbers for serialization
-        const convertedData = convertTimestamps(data);
-        booksData.push({
+      const booksData: Book[] = querySnapshot.docs.map(doc => ({
           id: doc.id,
-          ...convertedData,
-        } as Book);
-      });
+          ...convertTimestamps(doc.data()),
+      } as Book));
       setBooks(booksData);
     }, (error) => {
-      console.error("Error fetching books from Firestore:", error);
+      console.error("Error with real-time book listener:", error);
     });
 
     return () => unsubscribe();
   }, []);
   
 
-  const addBook = async (book: Omit<Book, 'id' | 'createdAt'>) => {
-     // Firestore will automatically create the 'books' collection if it doesn't exist
-     const bookWithTimestamp = { ...book, createdAt: Timestamp.now() };
-     const docRef = await addDoc(collection(db, "books"), bookWithTimestamp);
-     
-     // This function returns the book with its new ID and the timestamp.
-     // The onSnapshot listener will also update the global state, but returning
-     // it here can be useful for immediate feedback if needed.
-     return { ...bookWithTimestamp, id: docRef.id, createdAt: bookWithTimestamp.createdAt.toMillis() } as Book;
-  };
-
   const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
     const { id, ...dataToUpdate } = updatedBook;
     const bookDocRef = doc(db, 'books', id);
     await updateDoc(bookDocRef, dataToUpdate);
+    // No need to call fetchBooks here, onSnapshot will handle it
   };
   
   const deleteBook = async (id: string) => {
     const bookDocRef = doc(db, 'books', id);
     const bookToDelete = await findBookById(id);
 
-    // Delete Firestore document
+    // Delete Firestore document first
     await deleteDoc(bookDocRef);
 
-    // Delete files from Firebase Storage if they exist
+    // Then delete associated files from Storage
     if (bookToDelete?.storagePath) {
         try {
-            const fileRef = ref(storage, bookToDelete.storagePath);
-            await deleteObject(fileRef);
+            await deleteObject(ref(storage, bookToDelete.storagePath));
         } catch (e: any) {
-             // It's okay if the file doesn't exist, so we only log other errors
-            if (e.code !== 'storage/object-not-found') {
-              console.error("Error deleting main book file:", e)
-            }
+            if (e.code !== 'storage/object-not-found') console.error("Error deleting main book file:", e);
         }
     }
      if (bookToDelete?.coverImage && bookToDelete.coverImage.includes('firebasestorage')) {
         try {
-            const coverRef = ref(storage, bookToDelete.coverImage);
-            await deleteObject(coverRef);
+            await deleteObject(ref(storage, bookToDelete.coverImage));
         } catch (e: any) {
-            if (e.code !== 'storage/object-not-found') {
-                console.error("Error deleting cover image file:", e)
-            }
+            if (e.code !== 'storage/object-not-found') console.error("Error deleting cover image file:", e);
         }
     }
     if (bookToDelete?.audioStoragePath) {
        try {
-            const audioFileRef = ref(storage, bookToDelete.audioStoragePath);
-            await deleteObject(audioFileRef);
+            await deleteObject(ref(storage, bookToDelete.audioStoragePath));
        } catch (e: any) {
-            if (e.code !== 'storage/object-not-found') {
-                console.error("Error deleting audio file:", e);
-            }
+            if (e.code !== 'storage/object-not-found') console.error("Error deleting audio file:", e);
        }
     }
+    // onSnapshot will update the list automatically
   };
   
   const findBookById = async (id: string): Promise<Book | undefined> => {
-    // First, try to find the book in the already loaded list
-    const localBook = books.find(b => b.id === id);
-    if (localBook) {
-      return Promise.resolve(localBook);
-    }
-    
-    // If not found, fetch from firestore (might happen on a deep link or if snapshot is stale)
+    // Always fetch from server for most up-to-date data
     const bookDocRef = doc(db, 'books', id);
     const bookDoc = await getDoc(bookDocRef);
 
     if (bookDoc.exists()) {
-        const data = bookDoc.data();
-        const convertedData = convertTimestamps(data);
-        return { id: bookDoc.id, ...convertedData } as Book;
+        return { id: bookDoc.id, ...convertTimestamps(bookDoc.data()) } as Book;
     }
     return undefined;
   };
 
-  const value = { books, addBook, updateBook, deleteBook, findBookById };
+  const value = { books, updateBook, deleteBook, findBookById, refreshBooks: fetchBooks };
 
   return (
     <BookLibraryContext.Provider value={value}>
