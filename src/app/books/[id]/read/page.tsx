@@ -90,7 +90,7 @@ export default function BookReaderPage() {
                     </Card>
                 ) : (
                     <div className="max-w-3xl mx-auto bg-card p-6 sm:p-8 lg:p-10 rounded-lg shadow-sm">
-                        <pre className="whitespace-pre-wrap font-body text-lg leading-relaxed">
+                        <pre className="whitespace-pre-wrap font-code text-lg leading-relaxed">
                             {content}
                         </pre>
                     </div>

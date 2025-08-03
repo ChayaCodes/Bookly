@@ -160,7 +160,9 @@ export async function getTextContentFromStorage(storagePath: string): Promise<st
     try {
         const fileBuffer = await getBytes(fileRef);
         try {
-            const text = new TextDecoder().decode(fileBuffer);
+            // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
+            const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+            const text = decoder.decode(fileBuffer);
             if (text.trim().length === 0) {
                  return "This document appears to be empty or in a format that could not be read as text.";
             }
