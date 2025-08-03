@@ -20,7 +20,7 @@ export interface Book {
 export interface PendingBook {
     file: File;
     fileDataUrl: string; // Used for actual file upload
-    type: 'epub' | 'pdf' | 'text';
+    type: 'epub' | 'pdf' | 'text' | 'audio';
     metadata: Partial<GenerateBookMetadataOutput> & { title: string }; // Title is mandatory
     coverPreviewUrl?: string; // Used for client-side preview (can be blob or data URL)
 }

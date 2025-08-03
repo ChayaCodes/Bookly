@@ -56,7 +56,7 @@ const saveBookSchema = z.object({
   fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
   fileName: z.string().min(1),
   coverDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format.").nullable(),
-  type: z.enum(['epub', 'pdf', 'text']),
+  type: z.enum(['epub', 'pdf', 'text', 'audio']),
 });
 
 
@@ -99,8 +99,8 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
         if (coverDataUrl) {
             // A cover was extracted or uploaded by the user
             await generateCoverFromDataUrl(bookId, coverDataUrl);
-        } else {
-            // No cover, trigger AI generation in the background
+        } else if (bookMetadata.type !== 'audio') {
+            // No cover, trigger AI generation in the background (but not for audiobooks)
             generateCoverWithAI(bookId, bookMetadata.title, bookMetadata.description, bookMetadata['data-ai-hint']);
         }
 
@@ -151,10 +151,13 @@ async function generateCoverWithAI(bookId: string, title: string, description: s
 
 // --- OTHER ACTIONS (summarize, create audiobook etc.) ---
 
-export async function getArrayBufferFromStorage(storagePath: string): Promise<ArrayBuffer> {
+export async function getArrayBufferFromStorage(storagePath: string): Promise<string> {
     const fileRef = ref(storage, storagePath);
     try {
-        return await getBytes(fileRef);
+        const bytes = await getBytes(fileRef);
+        // Convert ArrayBuffer to Base64 string for serialization
+        const buffer = Buffer.from(bytes);
+        return buffer.toString('base64');
     } catch (e: any) {
         if (e.code === 'storage/object-not-found') {
             throw new Error("Could not find the book file in storage. It may have been deleted.");
@@ -164,11 +167,12 @@ export async function getArrayBufferFromStorage(storagePath: string): Promise<Ar
 }
 
 export async function getTextContentFromStorage(storagePath: string): Promise<string> {
-    const fileBuffer = await getArrayBufferFromStorage(storagePath);
+    const base64Content = await getArrayBufferFromStorage(storagePath);
     try {
+        const buffer = Buffer.from(base64Content, 'base64');
         // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
         const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
-        const text = decoder.decode(fileBuffer);
+        const text = decoder.decode(buffer);
         if (text.trim().length === 0) {
              return "This document appears to be empty or in a format that could not be read as text.";
         }
