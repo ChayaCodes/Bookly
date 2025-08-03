@@ -64,11 +64,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     setIsProcessing(true);
     
     try {
-      toast({
-        title: 'Processing Book...',
-        description: `Please wait while we analyze "${file.name}". This may take a moment.`,
-      });
-
       const fileDataUrl = await fileToDataURL(file);
       const fileType = file.type;
       const fileName = file.name.replace(/\.[^/.]+$/, "");
@@ -119,7 +114,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       
       // If we have text content, call the AI for metadata enhancement
       if(textContentForAI) {
-        toast({ title: 'Asking AI for details...', description: 'Generating description and tags...' });
         const result = await extractMetadataAction({ fileName: file.name, fileText: textContentForAI });
         if (!result.error && result.data) {
            // Merge AI data with existing data, giving precedence to already extracted data
