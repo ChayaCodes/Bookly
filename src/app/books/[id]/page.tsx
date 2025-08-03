@@ -75,19 +75,22 @@ export default function BookDetailsPage() {
       if (result.error) {
         toast({
           variant: 'destructive',
-          title: 'Error',
+          title: 'Summary Error',
           description: result.error,
         });
       } else if (result.data?.summary) {
         await updateBook({id: book.id, summary: result.data.summary});
-        setBook(prev => prev ? {...prev, summary: result.data!.summary} : null);
+        toast({
+          title: 'Summary Generated!',
+          description: 'A new AI summary has been added to this book.'
+        });
       }
     });
   };
 
   const handleCreateAudiobook = () => {
     if (!book || !book.storagePath) {
-        toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without book content."});
+        toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without the book's text file."});
         return;
     }
     startConversionTransition(async () => {
@@ -98,13 +101,16 @@ export default function BookDetailsPage() {
             const audioJson = JSON.stringify({ chapters: result.data.chapters });
             const audioStoragePath = `audiobooks/${book.id}.json`;
             const audioRef = ref(storage, audioStoragePath);
-            await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
-
-            const updatedBookData = { audioStoragePath: audioStoragePath, type: 'audio' as const };
-            await updateBook({id: book.id, ...updatedBookData});
-            setBook(prevBook => prevBook ? {...prevBook, ...updatedBookData} : null);
-            setAudioChapters(result.data.chapters);
-            toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated.' });
+            
+            try {
+              await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
+              const updatedBookData = { audioStoragePath: audioStoragePath, type: 'audio' as const };
+              await updateBook({id: book.id, ...updatedBookData});
+              setAudioChapters(result.data.chapters);
+              toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated successfully.' });
+            } catch (e: any) {
+               toast({ variant: 'destructive', title: 'Storage Error', description: `Failed to save audiobook chapters: ${e.message}` });
+            }
         }
     });
   };
@@ -125,11 +131,11 @@ export default function BookDetailsPage() {
             description: `"${book.title}" has been removed from your library.`
         })
         router.push('/');
-    } catch (error) {
+    } catch (error: any) {
          toast({
             variant: 'destructive',
             title: "Deletion Failed",
-            description: `Could not delete "${book.title}". Please try again.`
+            description: `Could not delete "${book.title}": ${error.message}`
         })
     }
   }

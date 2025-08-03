@@ -14,6 +14,8 @@ import { generateMetadataAction, uploadBookAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { Book } from '@/lib/types';
+import { v4 as uuidv4 } from 'uuid';
+
 
 // Helper to convert a file to a Base64 data URL
 const fileToDataURL = (file: File): Promise<string> => {
@@ -36,7 +38,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook } = useBookLibrary();
+  const { addBook, updateBook } = useBookLibrary();
   const { toast } = useToast();
 
   const form = useForm<z.infer<typeof FormSchema>>({
@@ -45,30 +47,22 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     startTransition(async () => {
+      const file = data.file;
+      const bookId = uuidv4();
+      
       try {
-        const file = data.file;
-        
-        // 1. Add a placeholder book to Firestore first
-        let initialBook: Omit<Book, 'id'|'createdAt'> = {
-          type: 'text',
-          title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
-          author: 'Unknown',
-          description: 'Uploading...',
-          tags: [],
-          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Uploading`,
-          'data-ai-hint': 'book cover',
-          language: 'English',
-          readingProgress: 0,
-        };
-
-        const addedBook = await addBook(initialBook);
+        // 1. Show immediate feedback
+        toast({
+          title: 'Starting Upload...',
+          description: `"${file.name}" is being uploaded.`,
+        });
 
         // 2. Read file as data URL on the client
         const fileDataUrl = await fileToDataURL(file);
 
-        // 3. Upload via server action to bypass CORS
+        // 3. Upload via server action
         const uploadResult = await uploadBookAction({
-            bookId: addedBook.id,
+            bookId: bookId,
             fileName: file.name,
             fileDataUrl: fileDataUrl,
         });
@@ -77,12 +71,23 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
              throw new Error(uploadResult.error || "Upload failed to return a storage path.");
         }
 
-        // 4. Update book with storage path
-        await useBookLibrary().updateBook({
-            id: addedBook.id,
-            storagePath: uploadResult.storagePath,
-            description: 'Processing...'
-        });
+        const storagePath = uploadResult.storagePath;
+
+        // 4. Add a placeholder book to Firestore immediately
+        let initialBook: Omit<Book, 'id'|'createdAt'> = {
+          type: 'text',
+          title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
+          author: 'Unknown',
+          description: 'Processing for metadata...',
+          tags: [],
+          coverImage: `https://placehold.co/400x600/9ca3da/2a2e45?text=Processing`,
+          'data-ai-hint': 'book cover',
+          language: 'English',
+          readingProgress: 0,
+          storagePath: storagePath,
+        };
+
+        await addBook({ ...initialBook, id: bookId });
         
         toast({
           title: 'Upload Complete!',
@@ -93,7 +98,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         setIsOpen(false);
         
         // 5. Asynchronously trigger AI processing in the background
-        generateMetadataAction({ bookId: addedBook.id, storagePath: uploadResult.storagePath })
+        generateMetadataAction({ bookId: bookId, storagePath: storagePath })
           .then(result => {
              if (result.error) {
                  toast({
@@ -101,21 +106,24 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                      title: 'AI Processing Failed',
                      description: result.error,
                  });
+                 // Optionally update the book to show the error
+                 updateBook({ id: bookId, description: `AI processing failed. ${result.error}`})
              } else {
                   toast({
-                      title: 'AI Update',
-                      description: `"${result.data?.title || initialBook.title}" has been enhanced by AI.`,
+                      title: 'AI Update Complete',
+                      description: `"${result.data?.title || initialBook.title}" has been enhanced.`,
                   });
              }
           });
 
       } catch (error) {
-        console.error("Error uploading book:", error);
+        console.error("Error in upload process:", error);
         toast({
           variant: 'destructive',
-          title: 'Error uploading file',
+          title: 'Upload Failed',
           description: error instanceof Error ? error.message : 'An unknown error occurred.',
         });
+        // Here you might want to clean up the failed book entry if it was created
       }
     });
   }

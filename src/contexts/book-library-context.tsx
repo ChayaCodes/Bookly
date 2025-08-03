@@ -8,19 +8,18 @@ import {
   query,
   orderBy,
   onSnapshot,
-  addDoc,
   updateDoc,
   deleteDoc,
   doc,
   getDoc,
-  writeBatch,
+  setDoc,
   DocumentReference,
 } from 'firebase/firestore';
 import { ref, deleteObject } from "firebase/storage";
 
 interface BookLibraryContextType {
   books: Book[];
-  addBook: (book: Omit<Book, 'id' | 'createdAt'>) => Promise<Book>;
+  addBook: (book: Omit<Book, 'createdAt'>) => Promise<Book>;
   updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
@@ -54,16 +53,18 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   }, []);
   
 
-  const addBook = async (book: Omit<Book, 'id' | 'createdAt'>) => {
+  const addBook = async (book: Omit<Book, 'createdAt'>) => {
      const now = Date.now();
-     const docRef = await addDoc(collection(db, 'books'), {
-        ...book,
-        createdAt: now,
-     });
-     const newBook = { id: docRef.id, createdAt: now, ...book }
-     // Manually add to local state to avoid waiting for snapshot listener
-     setBooks(prevBooks => [newBook as Book, ...prevBooks]);
-     return newBook as Book;
+     const bookWithTimestamp = { ...book, createdAt: now };
+     const bookDocRef = doc(db, 'books', book.id);
+     
+     await setDoc(bookDocRef, bookWithTimestamp);
+
+     // This relies on the onSnapshot listener to update the local state.
+     // For immediate UI feedback, we could manually add it, but this is more robust.
+     // setBooks(prevBooks => [bookWithTimestamp as Book, ...prevBooks]);
+     
+     return bookWithTimestamp as Book;
   };
 
   const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
@@ -74,15 +75,15 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   
   const deleteBook = async (id: string) => {
     const bookToDelete = books.find(b => b.id === id);
-    if (!bookToDelete) return;
+    if (!bookToDelete) throw new Error("Book not found in local library.");
 
     // Delete Firestore document
     await deleteDoc(doc(db, 'books', id));
 
-    // Delete files from Firebase Storage
+    // Delete files from Firebase Storage, catching errors if they fail
     if (bookToDelete.storagePath) {
         const fileRef = ref(storage, bookToDelete.storagePath);
-        await deleteObject(fileRef).catch(e => console.error("Error deleting main file:", e));
+        await deleteObject(fileRef).catch(e => console.error("Error deleting main book file:", e));
     }
     if (bookToDelete.audioStoragePath) {
         const audioFileRef = ref(storage, bookToDelete.audioStoragePath);
