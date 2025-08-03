@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
-import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -13,11 +13,22 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EditBookDialog } from '@/components/book/edit-book-dialog';
 import { summarizeContentAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 export default function BookDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { findBookById } = useBookLibrary();
+  const { findBookById, deleteBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
   const [summary, setSummary] = useState<string | null>(null);
@@ -54,6 +65,16 @@ export default function BookDetailsPage() {
       }
     });
   };
+  
+  const handleDeleteBook = () => {
+    if (!book) return;
+    deleteBook(book.id);
+    toast({
+        title: "Book Deleted",
+        description: `"${book.title}" has been removed from your library.`
+    })
+    router.push('/');
+  }
 
   if (!book) {
     return (
@@ -105,6 +126,26 @@ export default function BookDetailsPage() {
                  <Button variant="outline" className="w-full">
                      <Download className="mr-2 h-4 w-4" /> Download
                  </Button>
+                 <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="destructive" className="w-full">
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete Book
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                        <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            This action cannot be undone. This will permanently delete the book
+                            "{book.title}" from your library.
+                        </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteBook}>Delete</AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
             </div>
           </div>
 

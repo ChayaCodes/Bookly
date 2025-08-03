@@ -7,6 +7,7 @@ interface BookLibraryContextType {
   books: Book[];
   addBook: (book: Book) => void;
   updateBook: (updatedBook: Partial<Book> & { id: string }) => void;
+  deleteBook: (id: string) => void;
   findBookById: (id: string) => Book | undefined;
 }
 
@@ -51,6 +52,10 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     );
   };
   
+  const deleteBook = (id: string) => {
+    setBooks(prevBooks => prevBooks.filter(book => book.id !== id));
+  };
+  
   const findBookById = (id: string) => {
     const bookFromState = books.find(book => book.id === id);
     if (bookFromState) return bookFromState;
@@ -69,7 +74,7 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     return undefined;
   };
 
-  const value = { books, addBook, updateBook, findBookById };
+  const value = { books, addBook, updateBook, deleteBook, findBookById };
 
   return (
     <BookLibraryContext.Provider value={value}>
