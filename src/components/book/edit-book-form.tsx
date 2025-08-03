@@ -15,7 +15,7 @@ import type { Book, PendingBook } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent } from '../ui/card';
-import { saveBookAction, triggerAICoverGeneration, handleAudioUploadAction } from '@/app/actions';
+import { saveBookAction, triggerAICoverGeneration, processUploadedAudiobookAction } from '@/app/actions';
 import { Loader2, Upload } from 'lucide-react';
 import { storage } from '@/lib/firebase';
 import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
@@ -115,18 +115,21 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
 
             if (metadataResult.error) throw new Error(metadataResult.error);
 
-            const { bookId } = metadataResult;
+            const { bookId, storagePath } = metadataResult;
+            
+            toast({ title: 'Uploading File...', description: 'Please wait, this may take a moment.' });
+            const bookFileRef = ref(storage, storagePath);
+            await uploadBytes(bookFileRef, pendingBook.file);
+            console.log("✅ Main book/zip file uploaded to:", storagePath);
+
 
             if (pendingBook.type === 'audio') {
-                 toast({ title: 'Extracting Audio...', description: 'Please wait, this may take a moment.' });
-                 const zipFileBase64 = await fileToDataURL(pendingBook.file);
-                 const audioResult = await handleAudioUploadAction({ bookId, zipFileBase64 });
+                 toast({ title: 'Processing Audiobook...', description: 'Extracting chapters on the server.' });
+                 const audioResult = await processUploadedAudiobookAction({ bookId });
                  if(audioResult.error) throw new Error(audioResult.error);
             } else {
-                toast({ title: 'Uploading File...', description: 'Please wait while the book is uploaded.' });
-                const bookFileRef = ref(storage, metadataResult.storagePath);
-                await uploadBytes(bookFileRef, pendingBook.file);
-                console.log("✅ Main book file uploaded to:", metadataResult.storagePath);
+                 // For non-audio, update the final storage path on the record
+                 await updateBook({ id: bookId, storagePath: storagePath });
             }
 
             let coverDataUrl = (book as PendingBook).coverPreviewUrl || null;
@@ -342,5 +345,3 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
 
   return formContent;
 }
-
-    
