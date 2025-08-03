@@ -14,20 +14,24 @@ import {
   getDoc,
   getDocs,
   Timestamp,
+  setDoc,
+  writeBatch,
 } from 'firebase/firestore';
-import { ref, deleteObject, uploadString, getDownloadURL } from "firebase/storage";
+import { ref, deleteObject, uploadBytes, getDownloadURL, uploadString } from "firebase/storage";
+import { saveBookAction, processUploadedAudiobookAction, triggerAICoverGeneration } from '@/app/actions';
 
 interface BookLibraryContextType {
   books: Book[];
-  updateBook: (updatedBook: Partial<Book> & { id: string, coverDataUrl?: string | null }) => Promise<void>;
+  addBook: (book: Book) => Promise<void>;
+  updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
-  refreshBooks: () => Promise<void>; // Add a manual refresh function
+  refreshBooks: () => Promise<void>;
   
-  // For the new book flow
-  pendingBook: PendingBook | null;
-  setPendingBook: (book: PendingBook | null) => void;
+  pendingBook: (Omit<PendingBook, 'id'> & { id?: string }) | null;
+  setPendingBook: (book: (Omit<PendingBook, 'id'> & { id?: string }) | null) => void;
 }
+
 
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
 
@@ -50,49 +54,98 @@ const convertTimestamps = (data: any): any => {
 
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
   const [books, setBooks] = React.useState<Book[]>([]);
-  const [pendingBook, setPendingBook] = React.useState<PendingBook | null>(null);
+  const [pendingBook, setPendingBook] = React.useState<(Omit<PendingBook, 'id'> & { id?: string }) | null>(null);
 
-  const fetchBooks = React.useCallback(async () => {
-    try {
-        const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
-        const querySnapshot = await getDocs(q);
-        const booksData = querySnapshot.docs.map(doc => ({
-            id: doc.id,
-            ...convertTimestamps(doc.data()),
-        } as Book));
-        setBooks(booksData);
-    } catch (error) {
-        console.error("Error fetching books from Firestore:", error);
-    }
-  }, []);
-
-  // Initial fetch and listen for real-time updates
+  // Combines firestore books with local-only books
+  const getCombinedBooks = (firestoreBooks: Book[], localBooks: Book[]) => {
+    const firestoreIds = new Set(firestoreBooks.map(b => b.id));
+    const uniqueLocalBooks = localBooks.filter(b => !firestoreIds.has(b.id));
+    return [...uniqueLocalBooks, ...firestoreBooks].sort((a, b) => b.createdAt - a.createdAt);
+  };
+  
   React.useEffect(() => {
     const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
     const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const booksData: Book[] = querySnapshot.docs.map(doc => ({
+      const firestoreBooks: Book[] = querySnapshot.docs.map(doc => ({
           id: doc.id,
           ...convertTimestamps(doc.data()),
+          status: 'ready', // Books from firestore are always ready
       } as Book));
-      setBooks(booksData);
+      
+      setBooks(prevBooks => {
+        // Get existing local books (that haven't been saved yet)
+        const localOnlyBooks = prevBooks.filter(b => b.status && b.status !== 'ready');
+        return getCombinedBooks(firestoreBooks, localOnlyBooks);
+      });
+
     }, (error) => {
       console.error("Error with real-time book listener:", error);
     });
 
     return () => unsubscribe();
   }, []);
-  
 
-  const updateBook = async (updatedBook: Partial<Book> & { id: string, coverDataUrl?: string | null }) => {
-    const { id, coverDataUrl, ...dataToUpdate } = updatedBook;
+  const addBook = async (book: Book) => {
+    if (!book.localFile) {
+        throw new Error("No file provided for upload.");
+    }
+    
+    // Optimistically add to UI
+    setBooks(prevBooks => getCombinedBooks(prevBooks, [book]));
+    setPendingBook(book); // Clear pending book state from form
+
+    const { localFile, ...bookDataToSave } = book;
+
+    try {
+        // 1. Upload main file (book or zip)
+        let storagePath = `books/${book.id}/${localFile.name}`;
+        if(book.type === 'audio') {
+            storagePath = `audiobooks_zips/${book.id}/${localFile.name}`;
+        }
+        const fileRef = ref(storage, storagePath);
+        await uploadBytes(fileRef, localFile);
+        book.storagePath = storagePath;
+        updateBookInState(book.id, { status: 'uploading' });
+
+        // 2. Upload cover image (if it's a local data URL)
+        if (book.coverImage && book.coverImage.startsWith('data:')) {
+            const coverRef = ref(storage, `covers/${book.id}.png`);
+            await uploadString(coverRef, book.coverImage, 'data_url');
+            book.coverImage = await getDownloadURL(coverRef);
+        }
+
+        // 3. Save metadata to Firestore
+        const { status, ...firestoreData } = book; // Don't save client-side status
+        await setDoc(doc(db, "books", book.id), firestoreData);
+        
+        // 4. Trigger server-side processing for audio or AI cover
+        if (book.type === 'audio') {
+             await processUploadedAudiobookAction({ bookId: book.id });
+        } else if (!book.coverImage) {
+            await triggerAICoverGeneration(book.id);
+        }
+
+        // Final state update is handled by the onSnapshot listener
+    } catch (e: any) {
+        console.error("Failed to add book:", e);
+        // Remove the optimistic update on failure
+        setBooks(prev => prev.filter(b => b.id !== book.id));
+        throw e;
+    }
+  };
+  
+  const updateBookInState = (bookId: string, updates: Partial<Book>) => {
+      setBooks(prev => prev.map(b => b.id === bookId ? {...b, ...updates} : b));
+  }
+  
+  const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
+    const { id, ...dataToUpdate } = updatedBook;
     const bookDocRef = doc(db, 'books', id);
     
-    if (coverDataUrl) {
+    if (dataToUpdate.coverImage && dataToUpdate.coverImage.startsWith('data:')) {
       const coverImageRef = ref(storage, `covers/${id}.png`);
-      await uploadString(coverImageRef, coverDataUrl, 'data_url');
-      const downloadURL = await getDownloadURL(coverImageRef);
-      dataToUpdate.coverImage = downloadURL;
-      console.log(`[${id}] ✅ Cover image updated and URL generated: ${downloadURL}`);
+      await uploadString(coverImageRef, dataToUpdate.coverImage, 'data_url');
+      dataToUpdate.coverImage = await getDownloadURL(coverImageRef);
     }
     
     await updateDoc(bookDocRef, dataToUpdate);
@@ -119,16 +172,18 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
              if (e.code !== 'storage/object-not-found') console.error("Error deleting cover image file:", e);
         }
     }
-    if (bookToDelete?.audioStoragePath) {
-       try {
-            await deleteObject(ref(storage, bookToDelete.audioStoragePath));
-       } catch (e: any) {
-            if (e.code !== 'storage/object-not-found') console.error("Error deleting audio file:", e);
-       }
+    if (bookToDelete?.chapters) {
+        const deletePromises = bookToDelete.chapters.map(ch => deleteObject(ref(storage, ch.storagePath)));
+        await Promise.allSettled(deletePromises);
     }
   };
   
   const findBookById = async (id: string): Promise<Book | undefined> => {
+     // First, check local state for pending/uploading books
+    const localBook = books.find(b => b.id === id);
+    if (localBook) return localBook;
+
+    // If not found locally, fetch from Firestore
     const bookDocRef = doc(db, 'books', id);
     const bookDoc = await getDoc(bookDocRef);
 
@@ -138,7 +193,9 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     return undefined;
   };
 
-  const value = { books, updateBook, deleteBook, findBookById, refreshBooks: fetchBooks, pendingBook, setPendingBook };
+  const fetchBooks = async () => {}; // No longer needed for manual refresh
+
+  const value = { books, addBook, updateBook, deleteBook, findBookById, refreshBooks: fetchBooks, pendingBook, setPendingBook };
 
   return (
     <BookLibraryContext.Provider value={value}>

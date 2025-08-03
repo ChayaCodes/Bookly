@@ -1,4 +1,3 @@
-
 "use client";
 
 import * as React from 'react';
@@ -15,10 +14,7 @@ import type { Book, PendingBook } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent } from '../ui/card';
-import { saveBookAction, triggerAICoverGeneration, processUploadedAudiobookAction } from '@/app/actions';
 import { Loader2, Upload } from 'lucide-react';
-import { storage } from '@/lib/firebase';
-import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
 
 const FormSchema = z.object({
   title: z.string().min(1, 'Title is required.'),
@@ -29,7 +25,7 @@ const FormSchema = z.object({
 });
 
 type EditBookFormProps = {
-    book: Partial<Book> | PendingBook; 
+    book: (Partial<Book> & {id: string}) | (PendingBook & {id: string}); 
     isNewBook: boolean;
 }
 
@@ -42,7 +38,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
   );
   const [newCoverFile, setNewCoverFile] = React.useState<File | null>(null);
 
-  const { updateBook, refreshBooks, setPendingBook } = useBookLibrary();
+  const { updateBook, setPendingBook, addBook } = useBookLibrary();
   const { toast } = useToast();
   const router = useRouter();
   const fileInputRef = React.useRef<HTMLInputElement>(null);
@@ -90,8 +86,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
         const reader = new FileReader();
         reader.onloadend = () => {
             const result = reader.result as string;
-            // For base64, remove the data URI prefix
-            resolve(result.includes(',') ? result.split(',')[1] : result);
+            resolve(result);
         }
         reader.onerror = reject;
         reader.readAsDataURL(file);
@@ -101,79 +96,52 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     setIsSaving(true);
     if (isNewBook) {
-        const pendingBook = book as PendingBook;
-        try {
-            toast({ title: 'Saving Book...', description: 'Saving details to the database.' });
-            
-            const metadataResult = await saveBookAction({
-                ...data,
-                tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-                'data-ai-hint': pendingBook.metadata['data-ai-hint'] || 'book cover',
-                fileName: pendingBook.file.name,
-                type: pendingBook.type
-            });
-
-            if (metadataResult.error) throw new Error(metadataResult.error);
-
-            const { bookId, storagePath } = metadataResult;
-            
-            toast({ title: 'Uploading File...', description: 'Please wait, this may take a moment.' });
-            const bookFileRef = ref(storage, storagePath);
-            await uploadBytes(bookFileRef, pendingBook.file);
-            console.log("✅ Main book/zip file uploaded to:", storagePath);
-
-
-            if (pendingBook.type === 'audio') {
-                 toast({ title: 'Processing Audiobook...', description: 'Extracting chapters on the server.' });
-                 const audioResult = await processUploadedAudiobookAction({ bookId });
-                 if(audioResult.error) throw new Error(audioResult.error);
-            } else {
-                 // For non-audio, update the final storage path on the record
-                 await updateBook({ id: bookId, storagePath: storagePath });
-            }
-
-            let coverDataUrl = (book as PendingBook).coverPreviewUrl || null;
-            if(newCoverFile) {
-                const newCoverDataUrl = await fileToDataURL(newCoverFile);
-                coverDataUrl = `data:${newCoverFile.type};base64,${newCoverDataUrl}`;
-            }
-
-            if (coverDataUrl) {
-                const coverImageRef = ref(storage, `covers/${bookId}.png`);
-                await uploadString(coverImageRef, coverDataUrl, 'data_url');
-                const downloadURL = await getDownloadURL(coverImageRef);
-                await updateBook({ id: bookId, coverImage: downloadURL });
-                console.log(`✅ Cover image uploaded and record updated.`);
-            } else if (pendingBook.type !== 'audio') {
-                triggerAICoverGeneration(bookId);
-            }
-
-            toast({ title: 'Book Added!', description: `"${data.title}" is now in your library.` });
-            setPendingBook(null);
-            refreshBooks();
-            router.push('/');
-
-        } catch (e: any) {
-             toast({ variant: 'destructive', title: 'Save Failed', description: `Could not save book: ${e.message}` });
-             setIsSaving(false);
+        const pendingBook = book as PendingBook & { id: string };
+        
+        let finalCoverUrl = pendingBook.coverPreviewUrl || null;
+        if (newCoverFile) {
+            finalCoverUrl = await fileToDataURL(newCoverFile);
         }
+        
+        const newBookData: Book = {
+            ...data,
+            id: pendingBook.id,
+            type: pendingBook.type,
+            tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
+            'data-ai-hint': pendingBook.metadata['data-ai-hint'] || 'book cover',
+            createdAt: Date.now(),
+            readingProgress: 0,
+            status: 'processing', // New status
+            coverImage: finalCoverUrl, // Use local URL for immediate display
+            // Store file content locally for offline access
+            localFile: pendingBook.file,
+        };
+
+        try {
+            await addBook(newBookData);
+            toast({ title: "Book is being added!", description: "It will appear in your library shortly."});
+            router.push('/');
+        } catch (e: any) {
+            toast({ variant: 'destructive', title: 'Save Failed', description: `Could not add book: ${e.message}` });
+            setIsSaving(false);
+        }
+
     } else {
         const existingBook = book as Book;
         try {
-            let coverUploadUrl: string | null = null;
+            let coverUploadUrl: string | undefined = undefined;
             if (newCoverFile) {
-                const newCoverDataUrl = await fileToDataURL(newCoverFile);
-                coverUploadUrl = `data:${newCoverFile.type};base64,${newCoverDataUrl}`;
+                coverUploadUrl = await fileToDataURL(newCoverFile);
             }
             
-            const updatedBook: Partial<Book> & {id: string, coverDataUrl?: string | null} = {
+            const updatedBook: Partial<Book> & {id: string} = {
               id: existingBook.id!,
               title: data.title,
               author: data.author,
               description: data.description || '',
               language: data.language,
               tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-              coverDataUrl: coverUploadUrl
+              coverImage: coverUploadUrl, // Will be handled by updateBook
             };
 
             await updateBook(updatedBook);
@@ -248,7 +216,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
                 onChange={handleCoverChange}
             />
             <p className="text-xs text-muted-foreground">
-                {isNewBook && !(book as PendingBook).coverPreviewUrl && (book as PendingBook).type !== 'audio'
+                {isNewBook && !(book as PendingBook).coverPreviewUrl && (book as Pending-Book).type !== 'audio'
                     ? "A cover will be generated by AI if one isn't extracted or uploaded."
                     : ""
                 }

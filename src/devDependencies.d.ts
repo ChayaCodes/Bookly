@@ -3,3 +3,4 @@
 
 declare module 'epubjs';
 declare module 'js-cookie';
+declare module 'uuid';
