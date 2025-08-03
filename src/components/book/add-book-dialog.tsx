@@ -92,7 +92,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         toast({
           variant: 'destructive',
           title: 'Error uploading file',
-          description: 'Could not upload the file. Please check your connection and try again.',
+          description: 'Could not upload the file. This might be a CORS issue with Firebase Storage. Please ensure your storage bucket is configured to allow requests from this domain.',
         });
       }
     });
