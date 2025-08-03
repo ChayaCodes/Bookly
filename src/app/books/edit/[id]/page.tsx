@@ -23,7 +23,7 @@ export default function EditBookPage() {
         // If book not found, maybe it's still being added.
         // A better UX might show a loading state and retry.
         // For now, redirect to library.
-        router.push('/');
+        // router.push('/');
       }
     }
   }, [params.id, findBookById, router]);
@@ -41,9 +41,9 @@ export default function EditBookPage() {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto p-4 sm:p-6 lg:p-8">
         <div className="flex justify-between items-center mb-6">
-            <Button variant="ghost" onClick={() => router.push('/')} className="mb-4">
+            <Button variant="ghost" onClick={() => router.push(`/books/${book.id}`)} className="mb-4">
               <ArrowLeft className="mr-2 h-4 w-4" />
-              Back to Library
+              Back to Book Details
             </Button>
         </div>
         

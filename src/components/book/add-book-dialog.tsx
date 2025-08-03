@@ -26,6 +26,17 @@ const FormSchema = z.object({
     .refine(file => file.size > 0, "File cannot be empty."),
 });
 
+// Helper to convert a blob to a Base64 data URL
+const blobToDataURL = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+    });
+};
+
+
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
@@ -112,7 +123,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             const coverUrl = await book.coverUrl();
             if (coverUrl) {
                 const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
-                initialBook.coverImage = URL.createObjectURL(coverImageBlob);
+                initialBook.coverImage = await blobToDataURL(coverImageBlob);
             }
              
             await book.ready;

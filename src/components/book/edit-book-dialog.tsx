@@ -32,6 +32,17 @@ type EditBookDialogProps = {
     isPage?: boolean;
 }
 
+// Helper to convert a file to a Base64 data URL
+const fileToDataURL = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+    });
+};
+
+
 export function EditBookDialog({ book, children, isPage = false }: EditBookDialogProps) {
   const [isOpen, setIsOpen] = React.useState(isPage);
   const [coverPreview, setCoverPreview] = React.useState<string | null>(book.coverImage);
@@ -51,9 +62,9 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
   });
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
-    let coverImage = book.coverImage;
+    let coverImageData = book.coverImage;
     if (data.coverImage && data.coverImage instanceof File) {
-        coverImage = URL.createObjectURL(data.coverImage);
+        coverImageData = await fileToDataURL(data.coverImage);
     }
     
     const updatedBook = {
@@ -62,7 +73,7 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
       author: data.author,
       description: data.description || '',
       tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-      coverImage: coverImage,
+      coverImage: coverImageData,
     };
     updateBook(updatedBook);
     toast({
@@ -94,13 +105,16 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
       form.setValue('coverImage', file, { shouldValidate: true });
       const previewUrl = URL.createObjectURL(file);
       setCoverPreview(previewUrl);
+
+      // Clean up the object URL after the component unmounts
+      return () => URL.revokeObjectURL(previewUrl);
     }
   };
   
   const handleDialogChange = (open: boolean) => {
     if (isPage) {
         // if it's a page, redirect to library on close
-        if (!open) router.push('/');
+        if (!open) router.push(`/books/${book.id}`);
     } else {
         setIsOpen(open);
     }
