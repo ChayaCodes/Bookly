@@ -7,7 +7,7 @@ import { generateAudiobook } from '@/ai/flows/generate-audiobook';
 import { generateBookCover } from '@/ai/flows/generate-book-cover';
 import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
-import { ref, uploadString, getDownloadURL, getBytes, uploadBytes } from 'firebase/storage';
+import { ref, uploadString, getDownloadURL, getBytes, uploadBytes, deleteObject } from 'firebase/storage';
 import { doc, updateDoc, addDoc, collection, Timestamp, getDoc } from 'firebase/firestore';
 import type { Book, Chapter } from '@/lib/types';
 import JSZip from 'jszip';
@@ -67,27 +67,28 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     }
     const { fileName, type, ...bookMetadata } = validation.data;
 
-    let bookId: string;
-    
-    const storagePath = type === 'audio' 
-        ? `audiobooks_zips/${Date.now()}_${fileName}` // Keep zip for temp processing
-        : `books/${Date.now()}_${fileName}`;
-
     try {
-        // For audio, we won't set a path initially, as they will be individual chapter paths.
-        const newBookData: Omit<Book, 'id' | 'coverImage' | 'chapters'> = {
+        const newBookData: Omit<Book, 'id' | 'coverImage' | 'chapters' | 'storagePath'> = {
             ...bookMetadata,
             type: type,
-            ...(type !== 'audio' && { storagePath }),
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };
+        
         console.log("✅ Firestore record (initial) about to be created:", newBookData);
         const docRef = await addDoc(collection(db, "books"), newBookData);
-        bookId = docRef.id;
+        const bookId = docRef.id;
         console.log("✅ Firestore record created:", { id: bookId, ...newBookData });
         
-        // Return the ID and path for the client to handle the upload
+        const storagePath = type === 'audio' 
+            ? `audiobooks_zips/${bookId}/${fileName}` // Temp path for zip
+            : `books/${bookId}/${fileName}`; // Final path for other types
+
+        // For audio, we immediately update the doc with the temp zip path
+        if (type === 'audio') {
+            await updateDoc(docRef, { storagePath });
+        }
+        
         return { bookId, storagePath };
 
     } catch (e: any) {
@@ -97,22 +98,34 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
 }
 
 
-const audioUploadSchema = z.object({
+const processAudioSchema = z.object({
   bookId: z.string(),
-  zipFileBase64: z.string(),
 });
 
-export async function handleAudioUploadAction(values: z.infer<typeof audioUploadSchema>): Promise<{ success: boolean } | { error: string }> {
-    const validation = audioUploadSchema.safeParse(values);
+export async function processUploadedAudiobookAction(values: z.infer<typeof processAudioSchema>): Promise<{ success: boolean } | { error: string }> {
+    const validation = processAudioSchema.safeParse(values);
     if (!validation.success) {
         return { error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
     }
     
-    const { bookId, zipFileBase64 } = validation.data;
-    console.log(`[${bookId}] 🎵 Starting audio upload and extraction process...`);
+    const { bookId } = validation.data;
+    console.log(`[${bookId}] 🎵 Starting audio processing server-side...`);
+    
+    const bookDocRef = doc(db, "books", bookId);
     
     try {
-        const zip = await JSZip.loadAsync(Buffer.from(zipFileBase64, 'base64'));
+        const bookDoc = await getDoc(bookDocRef);
+        if (!bookDoc.exists() || !bookDoc.data().storagePath) {
+            throw new Error("Book record or temporary ZIP file path not found.");
+        }
+        
+        const zipStoragePath = bookDoc.data().storagePath;
+        console.log(`[${bookId}] -> Fetching ZIP from ${zipStoragePath}`);
+        
+        const zipFileRef = ref(storage, zipStoragePath);
+        const zipBuffer = await getBytes(zipFileRef);
+        
+        const zip = await JSZip.loadAsync(zipBuffer);
         const chapterPromises: Promise<Chapter>[] = [];
         const audioFiles = Object.keys(zip.files).filter(fileName => 
             !zip.files[fileName].dir && /\.(mp3|m4a|wav)$/i.test(fileName)
@@ -130,7 +143,13 @@ export async function handleAudioUploadAction(values: z.infer<typeof audioUpload
                 const chapterPath = `audiobooks/${bookId}/${fileName}`;
                 const chapterRef = ref(storage, chapterPath);
                 
-                await uploadBytes(chapterRef, audioBuffer, { contentType: file.comment || 'audio/mpeg' });
+                // Determine content type from file extension
+                const extension = fileName.split('.').pop()?.toLowerCase();
+                let contentType = 'audio/mpeg'; // default
+                if (extension === 'm4a') contentType = 'audio/mp4';
+                if (extension === 'wav') contentType = 'audio/wav';
+
+                await uploadBytes(chapterRef, audioBuffer, { contentType });
                 
                 return {
                     title: fileName.replace(/\.[^/.]+$/, ""),
@@ -146,14 +165,23 @@ export async function handleAudioUploadAction(values: z.infer<typeof audioUpload
             return { error: "No valid audio files (.mp3, .m4a, .wav) were found in the ZIP." };
         }
 
-        const bookDocRef = doc(db, "books", bookId);
-        await updateDoc(bookDocRef, { chapters: chapters });
+        // Update the book with chapters and remove the now-unnecessary zip path
+        await updateDoc(bookDocRef, { 
+            chapters: chapters,
+            storagePath: null // Or delete the field
+        });
+
+        // Clean up the original ZIP file
+        await deleteObject(zipFileRef);
+        console.log(`[${bookId}] -> Deleted temporary ZIP file.`);
 
         console.log(`[${bookId}] ✅ Successfully uploaded and processed ${chapters.length} chapters.`);
         return { success: true };
 
     } catch (e: any) {
         console.error(`[${bookId}] ❌ Audio processing failed:`, e);
+        // Attempt to clean up on failure
+        await updateDoc(bookDocRef, { description: `Audio processing failed: ${e.message}` });
         return { error: `Server-side audio processing failed: ${e.message}` };
     }
 }
@@ -284,5 +312,3 @@ export async function generateAudiobookAction(input: {storagePath: string}) {
     return { data: null, error: `Failed to generate audiobook: ${e.message || 'Please try again.'}` };
   }
 }
-
-    
