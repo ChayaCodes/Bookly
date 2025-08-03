@@ -1,12 +1,12 @@
 "use client";
 
 import * as React from 'react';
-import { Book } from '@/lib/types';
+import type { Book } from '@/lib/types';
 
 interface BookLibraryContextType {
   books: Book[];
   addBook: (book: Book) => void;
-  updateBook: (updatedBook: Book) => void;
+  updateBook: (updatedBook: Partial<Book> & { id: string }) => void;
   findBookById: (id: string) => Book | undefined;
 }
 
@@ -19,9 +19,11 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     setBooks(prevBooks => [book, ...prevBooks]);
   };
 
-  const updateBook = (updatedBook: Book) => {
+  const updateBook = (updatedBook: Partial<Book> & { id: string }) => {
     setBooks(prevBooks =>
-      prevBooks.map(book => (book.id === updatedBook.id ? updatedBook : book))
+      prevBooks.map(book => 
+        book.id === updatedBook.id ? { ...book, ...updatedBook } : book
+      )
     );
   };
   

@@ -7,7 +7,7 @@ export interface Book {
   description: string;
   tags: string[];
   language: string;
-  content: string; // The full text of the book
+  content: string; // The full text of the book, can be empty for EPUBs initially
   summary?: string;
   readingProgress: number; // Percentage 0-100
 }

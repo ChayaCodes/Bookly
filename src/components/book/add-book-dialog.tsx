@@ -13,26 +13,34 @@ import { useBookLibrary } from '@/hooks/use-book-library';
 import { generateMetadataAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import ePub from 'epubjs';
+import { useRouter } from 'next/navigation';
 
 const FormSchema = z.object({
-  file: z.custom<File>((v) => v instanceof File, {
-    message: "Please upload a file.",
-  }).refine(file => file.size > 0, "File cannot be empty."),
+  file: z.instanceof(File, { message: "Please upload a file." })
+    .refine(file => file.size > 0, "File cannot be empty."),
 });
 
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook } = useBookLibrary();
+  const { addBook, updateBook } = useBookLibrary();
   const { toast } = useToast();
+  const router = useRouter();
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: {
-      file: undefined,
-    },
   });
+
+  const readFileAsArrayBuffer = (file: File): Promise<ArrayBuffer> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as ArrayBuffer);
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  };
 
   const readFileAsText = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -42,55 +50,95 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       reader.readAsText(file);
     });
   };
+  
+  const getFileExtension = (filename: string) => {
+    return filename.split('.').pop()?.toLowerCase();
+  }
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     startTransition(async () => {
       try {
-        const bookText = await readFileAsText(data.file);
+        const file = data.file;
+        const extension = getFileExtension(file.name);
+        const bookId = crypto.randomUUID();
+        let bookTextContent = '';
+        let coverImageUrl = `https://placehold.co/300x450/9ca3da/2a2e45`;
+        
+        let initialBook = {
+          id: bookId,
+          title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
+          author: 'Unknown',
+          description: '',
+          tags: [],
+          coverImage: coverImageUrl,
+          'data-ai-hint': 'book cover',
+          language: 'English',
+          content: '',
+          readingProgress: 0,
+        };
 
-        if (bookText.length < 100) {
-            toast({
-                variant: 'destructive',
-                title: 'Error',
-                description: "File content is too short. It must be at least 100 characters.",
+        if (extension === 'epub') {
+            const arrayBuffer = await readFileAsArrayBuffer(file);
+            const book = ePub(arrayBuffer);
+            const metadata = await book.loaded.metadata;
+            if (metadata.title) initialBook.title = metadata.title;
+            if (metadata.creator) initialBook.author = metadata.creator;
+            if (metadata.description) initialBook.description = metadata.description;
+
+            const coverUrl = await book.coverUrl();
+            if (coverUrl) {
+                const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
+                initialBook.coverImage = URL.createObjectURL(coverImageBlob);
+            }
+            // For EPUB, getting full text can be complex, we'll do it via AI later if needed
+            // For now, we add the book and navigate to edit.
+        }
+
+        // For all files, we'll try to get text content for AI processing
+        try {
+            bookTextContent = await readFileAsText(file);
+            initialBook.content = bookTextContent;
+        } catch (e) {
+            console.warn("Could not read file as text:", e);
+        }
+
+        addBook(initialBook);
+        toast({
+          title: 'Book Added!',
+          description: `"${initialBook.title}" is being processed.`,
+        });
+        setIsOpen(false);
+        form.reset();
+        router.push(`/books/edit/${bookId}`);
+        
+        // Asynchronous AI Processing
+        if (bookTextContent.length >= 100) {
+            generateMetadataAction({ bookText: bookTextContent }).then(result => {
+                if (result.data) {
+                    updateBook({
+                        id: bookId,
+                        title: result.data.title,
+                        author: result.data.author,
+                        description: result.data.description,
+                        tags: result.data.tags,
+                        // Don't overwrite existing values if AI returns nothing
+                        ...Object.fromEntries(Object.entries(result.data).filter(([_, v]) => v != null)),
+                    });
+                     toast({
+                        title: 'AI Update',
+                        description: `AI has finished processing "${result.data.title}".`,
+                    });
+                }
+                // Silently fail if AI fails, user can edit manually
             });
-            return;
         }
 
-        const result = await generateMetadataAction({ bookText });
-
-        if (result.error) {
-          toast({
-            variant: 'destructive',
-            title: 'Error',
-            description: result.error,
-          });
-        } else if (result.data) {
-          const newBook = {
-            id: crypto.randomUUID(),
-            title: result.data.title,
-            author: result.data.author,
-            description: result.data.description,
-            tags: result.data.tags,
-            coverImage: `https://placehold.co/300x450/9ca3da/2a2e45`,
-            'data-ai-hint': 'book cover',
-            language: 'English', // Default value
-            content: bookText,
-            readingProgress: 0,
-          };
-          addBook(newBook);
-          toast({
-            title: 'Success!',
-            description: `"${result.data.title}" has been added to your library.`,
-          });
-          setIsOpen(false);
-          form.reset();
-        }
       } catch (error) {
+        console.error("Error processing book:", error);
         toast({
           variant: 'destructive',
-          title: 'Error reading file',
-          description: 'Could not process the uploaded file. Please ensure it is a valid text file.',
+          title: 'Error processing file',
+          description: 'Could not process the uploaded file. Please check the file type and try again.',
         });
       }
     });
@@ -121,7 +169,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     }
   };
 
-
   return (
     <Dialog open={isOpen} onOpenChange={(open) => {
       setIsOpen(open);
@@ -134,10 +181,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         <DialogHeader>
           <DialogTitle className="font-headline flex items-center gap-2">
             <Sparkles className="text-primary w-5 h-5" />
-            Add New Book with AI
+            Add New Book
           </DialogTitle>
           <DialogDescription>
-            Upload a book file (e.g., .txt, .epub). We'll automatically extract its title, author, and other details.
+            Upload a book file (EPUB, TXT, etc.). We'll try to extract its details automatically.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -163,17 +210,12 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                       <p className="mb-2 text-sm text-muted-foreground">
                         <span className="font-semibold">Click to upload</span> or drag and drop
                       </p>
-                      <p className="text-xs text-muted-foreground">TXT, EPUB, etc. (up to 10MB)</p>
+                      <p className="text-xs text-muted-foreground">EPUB, PDF, TXT, etc. (up to 10MB)</p>
                       <Input
                         type="file"
                         className="absolute w-full h-full opacity-0 cursor-pointer"
-                        accept=".txt,.epub,.md"
-                        onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) {
-                                field.onChange(file);
-                            }
-                        }}
+                        accept=".txt,.epub,.md,.pdf"
+                        onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)}
                       />
                     </div>
                   </FormControl>
@@ -191,10 +233,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Generating...
+                    Processing...
                   </>
                 ) : (
-                  'Add to Library'
+                  'Process Book'
                 )}
               </Button>
             </DialogFooter>
