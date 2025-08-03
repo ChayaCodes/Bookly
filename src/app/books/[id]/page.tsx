@@ -92,7 +92,7 @@ export default function BookDetailsPage() {
             
             try {
               await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
-              const updatedBookData = { audioStoragePath: audioStoragePath, type: 'audio' as const };
+              const updatedBookData = { audioStoragePath: audioStoragePath };
               await updateBook({id: book.id, ...updatedBookData});
               setBook(prev => prev ? {...prev, ...updatedBookData} : null);
               setAudioChapters(result.data.chapters);
@@ -138,7 +138,7 @@ export default function BookDetailsPage() {
   }
   
   const hasAudio = !!book.audioStoragePath;
-  const hasContent = !!book.storagePath;
+  const hasText = !!book.storagePath;
 
   return (
     <div className="min-h-screen bg-background">
@@ -165,7 +165,7 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
             <div className="space-y-2">
-                {hasContent && (
+                {hasText && (
                     <Button size="lg" className="w-full font-bold" asChild>
                       <Link href={`/books/${book.id}/read`}>
                         <BookOpen className="mr-2 h-5 w-5" />
@@ -174,19 +174,19 @@ export default function BookDetailsPage() {
                     </Button>
                 )}
                 {hasAudio && (
-                     <Button size="lg" variant={hasContent ? "secondary" : "default"} className="w-full font-bold">
+                     <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold">
                         <Headphones className="mr-2 h-5 w-5" />
                         Listen Now
                     </Button>
                 )}
                 
-                {!hasAudio && hasContent && (
+                {hasText && !hasAudio && (
                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
                         {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
                         {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
                     </Button>
                 )}
-                {book.type === 'audio' && !hasContent && (
+                {hasAudio && !hasText && (
                      <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
                         {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
                         {isConverting ? 'Creating Text...' : 'Create Text Version'}
@@ -256,7 +256,7 @@ export default function BookDetailsPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 border border-dashed rounded-lg">
                     <p>No summary available for this book yet.</p>
-                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading || !hasContent}>
+                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading || !hasText}>
                       {isSummaryLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -266,7 +266,7 @@ export default function BookDetailsPage() {
                         'Generate Summary'
                       )}
                     </Button>
-                     {!hasContent && <p className="text-xs text-muted-foreground">Summary generation requires book content.</p>}
+                     {!hasText && <p className="text-xs text-muted-foreground">Summary generation requires book content.</p>}
                   </div>
                 )}
               </CardContent>
