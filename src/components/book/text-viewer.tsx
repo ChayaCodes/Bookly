@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useEffect, useState } from 'react';
@@ -22,8 +23,8 @@ export function TextViewer({ fileContent }: TextViewerProps) {
     }, [fileContent]);
 
     return (
-        <div className="max-w-3xl mx-auto bg-card p-6 sm:p-8 lg:p-10 rounded-lg shadow-sm mt-8">
-            <pre className="whitespace-pre-wrap font-code text-lg leading-relaxed">
+        <div className="w-full h-full p-4 sm:p-6 lg:p-8 bg-card rounded-lg shadow-sm overflow-y-auto" style={{height: 'calc(100vh - 10rem)'}}>
+            <pre className="whitespace-pre-wrap font-code text-base sm:text-lg leading-relaxed">
                 {text}
             </pre>
         </div>
