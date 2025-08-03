@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
 const FormSchema = z.object({
-  file: z.instanceof(File).refine(file => file.size > 0, "Please upload a file."),
+  file: z.any().refine(file => file instanceof File && file.size > 0, "Please upload a file."),
 });
 
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
@@ -27,6 +27,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
+    defaultValues: {
+      file: undefined,
+    }
   });
   
   const fileRef = form.register("file");
@@ -113,13 +116,18 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     setIsDragging(false);
     const files = e.dataTransfer.files;
     if (files && files.length > 0) {
-      form.setValue('file', files[0]);
+      form.setValue('file', files[0], { shouldValidate: true });
     }
   };
 
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    <Dialog open={isOpen} onOpenChange={(open) => {
+      setIsOpen(open);
+      if (!open) {
+        form.reset();
+      }
+    }}>
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
@@ -161,7 +169,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                         accept=".txt,.epub,.md"
                         {...fileRef}
                         onChange={(e) => {
-                            if (e.target.files) {
+                            if (e.target.files && e.target.files.length > 0) {
                                 field.onChange(e.target.files[0])
                             }
                         }}
@@ -178,7 +186,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
               )}
             />
             <DialogFooter>
-              <Button type="submit" disabled={isPending} className="w-full">
+              <Button type="submit" disabled={isPending || !form.formState.isValid} className="w-full">
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
