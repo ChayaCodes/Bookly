@@ -10,7 +10,7 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z} from 'zod';
 
 const GenerateBookMetadataInputSchema = z.object({
   bookText: z
@@ -24,6 +24,7 @@ const GenerateBookMetadataOutputSchema = z.object({
   author: z.string().describe('The author of the book.'),
   description: z.string().describe('A short description of the book.'),
   tags: z.array(z.string()).describe('Relevant tags for the book.'),
+  language: z.string().describe('The primary language of the book (e.g., "English", "Hebrew").'),
   'data-ai-hint': z.string().describe('One or two keywords to hint at the cover image style. e.g., "science fiction" or "historical drama".')
 });
 export type GenerateBookMetadataOutput = z.infer<typeof GenerateBookMetadataOutputSchema>;
@@ -40,6 +41,7 @@ const generateBookMetadataPrompt = ai.definePrompt({
 
 - Title
 - Author
+- The primary language of the book (e.g., "English", "Hebrew", "French").
 - A short, compelling description (around 3-4 sentences)
 - A list of relevant tags or genres
 - A short (one or two word) hint for an AI image generator to create a cover image. Examples: "space opera", "fantasy landscape", "noir detective", "coming-of-age".
