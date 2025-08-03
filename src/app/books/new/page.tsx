@@ -5,19 +5,26 @@ import { useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import { EditBookForm } from '@/components/book/edit-book-form';
 import { Loader2 } from 'lucide-react';
+import { v4 as uuidv4 } from 'uuid';
 
 export default function NewBookPage() {
   const router = useRouter();
-  const { pendingBook } = useBookLibrary();
+  const { pendingBook, setPendingBook } = useBookLibrary();
 
   useEffect(() => {
     // If there's no pending book, the user shouldn't be on this page.
     if (!pendingBook) {
       router.replace('/');
     }
-  }, [pendingBook, router]);
+    // If there is a pending book but it already has an ID, it means
+    // it was just added, so we clear it and go home.
+    if (pendingBook?.id) {
+      setPendingBook(null);
+      router.replace('/');
+    }
+  }, [pendingBook, router, setPendingBook]);
 
-  if (!pendingBook) {
+  if (!pendingBook || pendingBook.id) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -25,6 +32,9 @@ export default function NewBookPage() {
       </div>
     );
   }
+
+  // Assign a temporary client-side ID for keying and state management
+  const bookWithId = { ...pendingBook, id: uuidv4() };
 
   return (
     <div className="min-h-screen bg-background">
@@ -34,7 +44,7 @@ export default function NewBookPage() {
             <p className="text-muted-foreground mb-6">
                 Review the AI-generated details below. You can make any corrections before saving the book to your library.
             </p>
-            <EditBookForm book={pendingBook} isNewBook={true} />
+            <EditBookForm book={bookWithId} isNewBook={true} />
         </div>
       </div>
     </div>

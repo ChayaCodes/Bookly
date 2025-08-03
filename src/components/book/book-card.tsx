@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
-import { BookOpen, Headphones } from 'lucide-react';
+import { BookOpen, Headphones, Loader2 } from 'lucide-react';
 
 interface BookCardProps {
   book: Book;
@@ -14,12 +14,20 @@ interface BookCardProps {
 export function BookCard({ book }: BookCardProps) {
   const hasAudio = book.type === 'audio' || !!book.audioStoragePath;
   const hasText = !!book.storagePath && book.type !== 'audio';
-  // For now, we assume a single progress. If separate progress is tracked later, logic can be added here.
   const displayProgress = book.readingProgress; 
+  const isProcessing = book.status === 'processing';
 
   return (
     <Link href={`/books/${book.id}`} className="group block">
-      <Card className="overflow-hidden transition-all duration-300 ease-in-out hover:shadow-lg hover:-translate-y-1">
+      <Card className="overflow-hidden transition-all duration-300 ease-in-out hover:shadow-lg hover:-translate-y-1 relative">
+         {isProcessing && (
+          <div className="absolute inset-0 bg-background/80 flex items-center justify-center z-10">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mx-auto" />
+              <p className="mt-2 text-sm font-semibold">Processing...</p>
+            </div>
+          </div>
+        )}
         <CardContent className="p-0">
           <div className="relative aspect-[2/3] w-full">
             <Image
