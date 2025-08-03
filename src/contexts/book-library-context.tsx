@@ -78,6 +78,7 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
 
     if (!bookFromState) return undefined;
     
+    // Always check for content in localStorage and merge it
     if (typeof window !== 'undefined') {
       try {
         const storedBooksRaw = window.localStorage.getItem('books_content');

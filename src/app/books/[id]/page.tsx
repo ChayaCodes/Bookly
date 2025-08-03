@@ -28,7 +28,7 @@ import {
 export default function BookDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { findBookById, deleteBook, updateBook } = useBookLibrary();
+  const { findBookById, deleteBook, updateBook, books } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
   const [isConverting, startConversionTransition] = useTransition();
@@ -39,16 +39,7 @@ export default function BookDetailsPage() {
       const foundBook = findBookById(params.id as string);
       setBook(foundBook || null);
     }
-  }, [params.id, findBookById]);
-  
-  useEffect(() => {
-    if (params.id && !book) {
-        const foundBook = findBookById(params.id as string);
-        if(foundBook) {
-            setBook(foundBook);
-        }
-    }
-  }, [findBookById, book, params.id])
+  }, [params.id, findBookById, books]);
 
   const handleGenerateSummary = () => {
     if (!book || !book.content) return;
@@ -69,15 +60,18 @@ export default function BookDetailsPage() {
   };
 
   const handleCreateAudiobook = () => {
-    if (!book || !book.content) return;
+    if (!book || !book.content) {
+        toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without book content."});
+        return;
+    }
     startConversionTransition(async () => {
         const result = await generateAudiobookAction({ bookContent: book.content as string });
         if (result.error) {
             toast({ variant: 'destructive', title: 'Audiobook Creation Failed', description: result.error });
         } else if (result.data) {
-            const updatedBook = { ...book, audioChapters: result.data.chapters, type: 'audio' as const };
-            updateBook({id: book.id, audioChapters: result.data.chapters, type: 'audio'});
-            setBook(updatedBook);
+            const updatedBookData = { audioChapters: result.data.chapters, type: 'audio' as const };
+            updateBook({id: book.id, ...updatedBookData});
+            setBook(prevBook => prevBook ? {...prevBook, ...updatedBookData} : null);
             toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated.' });
         }
     });
@@ -109,6 +103,7 @@ export default function BookDetailsPage() {
   }
   
   const hasAudio = book.audioChapters && book.audioChapters.length > 0;
+  const hasContent = !!book.content;
 
   return (
     <div className="min-h-screen bg-background">
@@ -134,41 +129,30 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
             <div className="space-y-2">
-                {book.type === 'text' && !hasAudio && (
-                    <>
-                        <Button size="lg" className="w-full font-bold">
-                            <BookOpen className="mr-2 h-5 w-5" />
-                            Read Now
-                        </Button>
-                        <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
-                            {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
-                            {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
-                        </Button>
-                    </>
+                {hasContent && (
+                    <Button size="lg" className="w-full font-bold">
+                        <BookOpen className="mr-2 h-5 w-5" />
+                        Read Now
+                    </Button>
                 )}
-                 {book.type === 'audio' && book.content && (
-                    <>
-                        <Button size="lg" className="w-full font-bold">
-                            <BookOpen className="mr-2 h-5 w-5" />
-                            Read Now
-                        </Button>
-                         <Button size="lg" variant="secondary" className="w-full font-bold">
-                            <Headphones className="mr-2 h-5 w-5" />
-                            Listen Now
-                        </Button>
-                    </>
+                {hasAudio && (
+                     <Button size="lg" variant={hasContent ? "secondary" : "default"} className="w-full font-bold">
+                        <Headphones className="mr-2 h-5 w-5" />
+                        Listen Now
+                    </Button>
                 )}
-                {book.type === 'audio' && !book.content && (
-                    <>
-                        <Button size="lg" className="w-full font-bold">
-                            <Headphones className="mr-2 h-5 w-5" />
-                            Listen Now
-                        </Button>
-                         <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
-                            {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
-                            {isConverting ? 'Creating Text...' : 'Create Text Version'}
-                        </Button>
-                    </>
+                
+                {book.type === 'text' && !hasAudio && hasContent && (
+                    <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
+                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
+                        {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
+                    </Button>
+                )}
+                {book.type === 'audio' && !hasContent && (
+                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
+                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
+                        {isConverting ? 'Creating Text...' : 'Create Text Version'}
+                    </Button>
                 )}
             </div>
              <div className="space-y-2">
@@ -192,7 +176,7 @@ export default function BookDetailsPage() {
                         <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete the book
                             "{book.title}" from your library.
-                        </AlertDialogDescription>
+                        </-AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
