@@ -59,34 +59,42 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   
   const deleteBook = (id: string) => {
     setBooks(prevBooks => prevBooks.filter(book => book.id !== id));
-  };
-  
-  const findBookById = (id: string) => {
-    // First, try to find the book in the current state.
-    const bookFromState = books.find(book => book.id === id);
-    if (bookFromState?.content) {
-        return bookFromState;
-    }
-
-    // If not found or content is missing, check localStorage directly.
-    // This handles cases where state might not have the full book object yet.
+    // Also remove from content storage
      if (typeof window !== 'undefined') {
         try {
-            const storedBooksRaw = window.localStorage.getItem('books_content');
-            if (storedBooksRaw) {
-                const storedBooksContent = JSON.parse(storedBooksRaw);
-                const bookWithContent = storedBooksContent.find((b: {id: string}) => b.id === id);
-
-                if (bookWithContent) {
-                   const libraryBooks = JSON.parse(window.localStorage.getItem('books') || '[]');
-                   const bookInfo = libraryBooks.find((b:Book) => b.id === id);
-                   return {...bookInfo, content: bookWithContent.content };
-                }
-            }
-        } catch(e) {
-            console.error("Failed to read book content from localstorage", e);
+            const stored = window.localStorage.getItem('books_content') || '[]';
+            const contents = JSON.parse(stored);
+            const newContents = contents.filter((item: {id: string}) => item.id !== id);
+            window.localStorage.setItem('books_content', JSON.stringify(newContents));
+        } catch (e) {
+            console.error("Failed to remove book content from localStorage", e);
         }
+     }
+  };
+  
+  const findBookById = (id: string): Book | undefined => {
+    const bookFromState = books.find(book => book.id === id);
+
+    if (bookFromState && bookFromState.content) {
+      return bookFromState;
     }
+    
+    if (typeof window !== 'undefined') {
+      try {
+        const storedBooksRaw = window.localStorage.getItem('books_content');
+        if (storedBooksRaw) {
+            const storedBooksContent = JSON.parse(storedBooksRaw);
+            const bookWithContent = storedBooksContent.find((b: {id: string}) => b.id === id);
+
+            if (bookWithContent) {
+               return {...bookFromState, ...bookWithContent };
+            }
+        }
+      } catch(e) {
+        console.error("Failed to read book content from localstorage", e);
+      }
+    }
+    
     return bookFromState;
   };
 

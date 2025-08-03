@@ -71,6 +71,11 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         window.localStorage.setItem('books_content', JSON.stringify(contents));
     } catch(e) {
         console.error("Failed to save book content to localStorage", e);
+        toast({
+            variant: 'destructive',
+            title: 'Could not save book content',
+            description: 'The book content is too large to be saved in your browser. Some features might not work correctly.'
+        })
     }
   }
 
@@ -159,10 +164,11 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             }
         }
         
-        // Don't store content directly on the book object in main library state
-        // initialBook.content = bookTextContent; 
+        initialBook.content = bookTextContent; 
         addBook(initialBook);
-        saveBookContent(bookId, bookTextContent);
+        if (bookTextContent) {
+            saveBookContent(bookId, bookTextContent);
+        }
 
 
         toast({
@@ -186,7 +192,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     const updatePayload: Partial<Book> = {};
                     const isTitleDefault = /untitled/i.test(currentBook.title) || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
                     const isAuthorDefault = /unknown/i.test(currentBook.author);
-                    const isDescriptionDefault = !currentBook.description || /impossible/i.test(currentBook.description);
+                    const isDescriptionDefault = !currentBook.description || /impossible/i.test(currentBook.description) || /blank document/.test(currentBook.description);
 
                     if (result.data.title && isTitleDefault) updatePayload.title = result.data.title;
                     if (result.data.author && isAuthorDefault) updatePayload.author = result.data.author;
@@ -285,7 +291,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                       <p className="mb-2 text-sm text-muted-foreground">
                         <span className="font-semibold">Click to upload</span> or drag and drop
                       </p>
-                      <p className="text-xs text-muted-foreground">EPUB, PDF, TXT, etc. (up to 10MB)</p>
+                      <p className="text-xs text-muted-foreground">EPUB, PDF, TXT, etc.</p>
                       <Input
                         type="file"
                         className="absolute w-full h-full opacity-0 cursor-pointer"
