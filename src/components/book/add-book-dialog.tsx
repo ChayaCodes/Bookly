@@ -9,12 +9,23 @@ import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Loader2, Sparkles, UploadCloud } from 'lucide-react';
-import { uploadBookAction } from '@/app/actions';
+import { extractMetadataAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
 
+// Function to read file as text
+const fileToText = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsText(file);
+    });
+};
 
+// Function to read file as Data URL
 const fileToDataURL = (file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -24,6 +35,7 @@ const fileToDataURL = (file: File): Promise<string> => {
     });
 };
 
+
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
     .refine(file => file.size > 0, "File cannot be empty."),
@@ -31,10 +43,11 @@ const FormSchema = z.object({
 
 export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
-  const [isUploading, setIsUploading] = React.useState(false);
+  const [isProcessing, setIsProcessing] = React.useState(false);
   const [isDragging, setIsDragging] = React.useState(false);
   const { toast } = useToast();
-  const { refreshBooks } = useBookLibrary();
+  const router = useRouter();
+  const { setPendingBook } = useBookLibrary();
 
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
@@ -42,51 +55,60 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     const file = data.file;
-    setIsUploading(true);
+    setIsProcessing(true);
     
     try {
       toast({
-        title: 'Uploading Book...',
-        description: `Please wait while "${file.name}" is processed.`,
+        title: 'Processing Book...',
+        description: `Please wait while we analyze "${file.name}".`,
       });
 
+      const fileText = await fileToText(file);
       const fileDataUrl = await fileToDataURL(file);
 
-      const result = await uploadBookAction({
+      const result = await extractMetadataAction({
           fileName: file.name,
-          fileDataUrl: fileDataUrl,
+          fileText: fileText,
       });
 
-      if ('error' in result) {
+      if (result.error || !result.data) {
            toast({
               variant: 'destructive',
-              title: 'Upload Failed',
-              description: result.error || 'An unknown error occurred during upload.'
+              title: 'Processing Failed',
+              description: result.error || 'Could not extract metadata from the book.'
            });
       } else {
          toast({
-            title: 'Upload Complete!',
-            description: `"${file.name}" has been added and is being processed by AI.`,
+            title: 'Processing Complete!',
+            description: `Review the extracted details for "${file.name}".`,
          });
-         refreshBooks(); // Manually trigger a refresh of the book list
-         setIsOpen(false); // Close dialog on success
+         
+         // Store the pending book data in context/state management
+         setPendingBook({
+            file,
+            fileDataUrl,
+            metadata: result.data
+         });
+
+         setIsOpen(false); // Close this dialog
+         router.push('/books/new'); // Navigate to the new book editing page
       }
       
     } catch (error) {
-      console.error("Error in upload process:", error);
+      console.error("Error in processing:", error);
       toast({
         variant: 'destructive',
         title: 'Operation Failed',
         description: error instanceof Error ? error.message : 'An unexpected error occurred.',
       });
     } finally {
-        setIsUploading(false);
+        setIsProcessing(false);
         form.reset();
     }
   }
   
   const handleOpenChange = (open: boolean) => {
-    if (isUploading) return;
+    if (isProcessing) return;
     setIsOpen(open);
     if (!open) {
       form.reset();
@@ -119,7 +141,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             Add New Book
           </DialogTitle>
           <DialogDescription>
-            Upload a book file (EPUB, PDF, TXT). We'll store it and process it with AI.
+            Upload a book file (EPUB, PDF, TXT). We'll analyze it before adding to your library.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -132,7 +154,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                   <FormLabel>Book File</FormLabel>
                   <FormControl>
                     <div
-                      className={cn("relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors", isDragging && "border-primary bg-muted/50", isUploading && "cursor-not-allowed opacity-50")}
+                      className={cn("relative flex flex-col items-center justify-center w-full h-48 border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors", isDragging && "border-primary bg-muted/50", isProcessing && "cursor-not-allowed opacity-50")}
                       onDragEnter={handleDragEnter}
                       onDragLeave={handleDragLeave}
                       onDragOver={handleDragOver}
@@ -146,7 +168,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                         className="absolute w-full h-full opacity-0 cursor-pointer"
                         accept=".txt,.epub,.md,.pdf"
                         onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)}
-                        disabled={isUploading}
+                        disabled={isProcessing}
                       />
                     </div>
                   </FormControl>
@@ -156,8 +178,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
               )}
             />
             <DialogFooter>
-              <Button type="submit" disabled={isUploading || !form.formState.isValid} className="w-full">
-                {isUploading ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</> : 'Upload Book'}
+              <Button type="submit" disabled={isProcessing || !form.formState.isValid} className="w-full">
+                {isProcessing ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</> : 'Process Book'}
               </Button>
             </DialogFooter>
           </form>

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from 'react';
-import type { Book } from '@/lib/types';
+import type { Book, PendingBook } from '@/lib/types';
 import { db, storage } from '@/lib/firebase';
 import {
   collection,
@@ -23,6 +23,10 @@ interface BookLibraryContextType {
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
   refreshBooks: () => Promise<void>; // Add a manual refresh function
+  
+  // For the new book flow
+  pendingBook: PendingBook | null;
+  setPendingBook: (book: PendingBook | null) => void;
 }
 
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
@@ -46,6 +50,7 @@ const convertTimestamps = (data: any): any => {
 
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
   const [books, setBooks] = React.useState<Book[]>([]);
+  const [pendingBook, setPendingBook] = React.useState<PendingBook | null>(null);
 
   const fetchBooks = React.useCallback(async () => {
     try {
@@ -128,7 +133,7 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     return undefined;
   };
 
-  const value = { books, updateBook, deleteBook, findBookById, refreshBooks: fetchBooks };
+  const value = { books, updateBook, deleteBook, findBookById, refreshBooks: fetchBooks, pendingBook, setPendingBook };
 
   return (
     <BookLibraryContext.Provider value={value}>

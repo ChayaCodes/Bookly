@@ -1,9 +1,11 @@
+import { GenerateBookMetadataOutput } from "@/ai/flows/generate-book-metadata";
+
 export interface Book {
   id: string; // Document ID in Firestore
   type: 'text' | 'audio';
   title: string;
   author: string;
-  coverImage: string; // data: URL for the image
+  coverImage?: string; // URL for the image
   'data-ai-hint'?: string;
   description: string;
   tags: string[];
@@ -13,4 +15,10 @@ export interface Book {
   summary?: string;
   readingProgress: number; // Percentage 0-100
   createdAt: number; // Timestamp
+}
+
+export interface PendingBook {
+    file: File;
+    fileDataUrl: string;
+    metadata: GenerateBookMetadataOutput;
 }

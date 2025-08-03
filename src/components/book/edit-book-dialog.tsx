@@ -6,31 +6,30 @@ import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { useBookLibrary } from '@/hooks/use-book-library';
-import type { Book } from '@/lib/types';
+import type { Book, PendingBook } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '../ui/textarea';
-import { UploadCloud, X } from 'lucide-react';
-import { cn } from '@/lib/utils';
 import { Card, CardContent } from '../ui/card';
+import { saveBookAction } from '@/app/actions';
+import { Loader2 } from 'lucide-react';
 
 const FormSchema = z.object({
   title: z.string().min(1, 'Title is required.'),
   author: z.string().min(1, 'Author is required.'),
   description: z.string().optional(),
   tags: z.string().optional(),
-  coverImage: z.any().optional(),
 });
 
-type EditBookDialogProps = {
-    book: Book;
-    children: React.ReactNode;
-    isPage?: boolean;
+type EditBookFormProps = {
+    // Can be a pending book (new) or an existing book (for editing later)
+    book: Partial<Book> | PendingBook; 
+    isNewBook: boolean;
 }
+
 
 // Helper to convert a file to a Base64 data URL
 const fileToDataURL = (file: File): Promise<string> => {
@@ -43,126 +42,121 @@ const fileToDataURL = (file: File): Promise<string> => {
 };
 
 
-export function EditBookDialog({ book, children, isPage = false }: EditBookDialogProps) {
-  const [isOpen, setIsOpen] = React.useState(isPage);
-  const [coverPreview, setCoverPreview] = React.useState<string | null>(book.coverImage);
-  const { updateBook } = useBookLibrary();
+export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
+  const [isSaving, setIsSaving] = React.useState(false);
+  const [coverPreview, setCoverPreview] = React.useState<string | null>(isNewBook ? 'https://placehold.co/400x600/9ca3da/2a2e45?text=Generating...' : (book as Book).coverImage);
+  const { updateBook, refreshBooks } = useBookLibrary();
   const { toast } = useToast();
   const router = useRouter();
 
+  const getInitialValues = () => {
+    if (isNewBook) {
+        const pendingBook = book as PendingBook;
+        return {
+            title: pendingBook.metadata.title || '',
+            author: pendingBook.metadata.author || '',
+            description: pendingBook.metadata.description || '',
+            tags: pendingBook.metadata.tags?.join(', ') || '',
+        }
+    }
+    const existingBook = book as Book;
+    return {
+        title: existingBook.title,
+        author: existingBook.author,
+        description: existingBook.description,
+        tags: existingBook.tags?.join(', ') || '',
+    }
+  }
+
+
   const form = useForm<z.infer<typeof FormSchema>>({
     resolver: zodResolver(FormSchema),
-    defaultValues: {
-      title: book.title,
-      author: book.author,
-      description: book.description,
-      tags: book.tags.join(', '),
-      coverImage: undefined,
-    },
+    defaultValues: getInitialValues(),
   });
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
-    try {
-        let coverImageData = book.coverImage;
-        if (data.coverImage && data.coverImage instanceof File) {
-            coverImageData = await fileToDataURL(data.coverImage);
-        } else {
-            coverImageData = coverPreview; // Ensure preview is saved if no new file
+    setIsSaving(true);
+    if (isNewBook) {
+        // --- SAVE NEW BOOK ---
+        const pendingBook = book as PendingBook;
+        try {
+            toast({ title: 'Saving Book...', description: 'Uploading file and saving details.' });
+            
+            const result = await saveBookAction({
+                ...data,
+                tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
+                'data-ai-hint': pendingBook.metadata['data-ai-hint'] || 'book cover',
+                fileDataUrl: pendingBook.fileDataUrl,
+                fileName: pendingBook.file.name,
+            });
+
+            if (result.error) {
+                throw new Error(result.error);
+            }
+
+            toast({ title: 'Book Added!', description: `"${data.title}" is now in your library.` });
+            refreshBooks();
+            router.push('/');
+
+        } catch (e: any) {
+             toast({ variant: 'destructive', title: 'Save Failed', description: `Could not save book: ${e.message}` });
+             setIsSaving(false);
         }
-        
-        const updatedBook: Partial<Book> & {id: string} = {
-          id: book.id,
-          title: data.title,
-          author: data.author,
-          description: data.description || '',
-          tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-          coverImage: coverImageData || '',
-        };
-
-        await updateBook(updatedBook);
-        
-        toast({
-          title: 'Book Updated',
-          description: `"${book.title}" has been successfully updated.`,
-        });
-        
-        if (isPage) {
-            router.push(`/books/${book.id}`);
-        } else {
-            setIsOpen(false);
-        }
-    } catch (e: any) {
-        toast({
-            variant: 'destructive',
-            title: 'Update Failed',
-            description: `Could not update book: ${e.message}`
-        });
-    }
-  }
-
-  React.useEffect(() => {
-    form.reset({
-        title: book.title,
-        author: book.author,
-        description: book.description,
-        tags: book.tags.join(', '),
-        coverImage: undefined,
-    });
-    setCoverPreview(book.coverImage);
-  }, [book, form, isOpen]);
-
-  const handleCoverChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      form.setValue('coverImage', file, { shouldValidate: true });
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setCoverPreview(reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
-  };
-  
-  const handleDialogChange = (open: boolean) => {
-    if (isPage) {
-        // if it's a page, redirect back to book details on close
-        if (!open) router.push(`/books/${book.id}`);
     } else {
-        setIsOpen(open);
+        // --- UPDATE EXISTING BOOK ---
+        const existingBook = book as Book;
+        try {
+            const updatedBook: Partial<Book> & {id: string} = {
+              id: existingBook.id!,
+              title: data.title,
+              author: data.author,
+              description: data.description || '',
+              tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
+            };
+
+            await updateBook(updatedBook);
+            
+            toast({
+              title: 'Book Updated',
+              description: `"${data.title}" has been successfully updated.`,
+            });
+            
+            router.push(`/books/${existingBook.id}`);
+
+        } catch (e: any) {
+            toast({
+                variant: 'destructive',
+                title: 'Update Failed',
+                description: `Could not update book: ${e.message}`
+            });
+            setIsSaving(false);
+        }
     }
   }
+
 
   const formContent = (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="grid grid-cols-1 md:grid-cols-3 gap-6">
         {/* Left Column for Cover */}
         <div className="md:col-span-1 space-y-4">
-             <FormField
-              control={form.control}
-              name="coverImage"
-              render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Cover Image</FormLabel>
-                   <Card>
-                       <CardContent className="p-2">
-                           {coverPreview ? (
-                            <div className="relative aspect-[2/3] w-full">
-                               <Image src={coverPreview} alt="Cover preview" fill objectFit="cover" className="rounded-md" />
-                            </div>
-                           ) : (
-                            <div className="relative aspect-[2/3] w-full bg-muted rounded-md flex items-center justify-center">
-                                <span className="text-sm text-muted-foreground">No Image</span>
-                            </div>
-                           )}
-                       </CardContent>
-                   </Card>
-                  <FormControl>
-                    <Input type="file" accept="image/*" onChange={handleCoverChange} className="text-sm"/>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+            <FormLabel>Cover Image</FormLabel>
+            <Card>
+                <CardContent className="p-2">
+                    {coverPreview ? (
+                    <div className="relative aspect-[2/3] w-full">
+                        <Image src={coverPreview} alt="Cover preview" fill objectFit="cover" className="rounded-md" />
+                    </div>
+                    ) : (
+                    <div className="relative aspect-[2/3] w-full bg-muted rounded-md flex items-center justify-center">
+                        <span className="text-sm text-muted-foreground">No Image</span>
+                    </div>
+                    )}
+                </CardContent>
+            </Card>
+            <p className="text-xs text-muted-foreground">
+                {isNewBook ? "A cover will be generated by AI after you save the book." : "Cover editing is not yet available."}
+            </p>
         </div>
 
         {/* Right Column for Details */}
@@ -174,7 +168,7 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
                 <FormItem>
                   <FormLabel>Title</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} disabled={isSaving} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -187,7 +181,7 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
                 <FormItem>
                   <FormLabel>Author</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} disabled={isSaving} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -200,7 +194,7 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
                 <FormItem>
                   <FormLabel>Description</FormLabel>
                   <FormControl>
-                    <Textarea className="resize-y h-24" {...field} />
+                    <Textarea className="resize-y h-24" {...field} disabled={isSaving}/>
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -213,37 +207,24 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
                 <FormItem>
                   <FormLabel>Tags (comma-separated)</FormLabel>
                   <FormControl>
-                    <Input {...field} />
+                    <Input {...field} disabled={isSaving} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
               )}
             />
         </div>
-        <div className="md:col-span-3">
-             <Button type="submit" className="w-full">
-                {isPage ? "Save and Continue" : "Save Changes"}
+        <div className="md:col-span-3 flex justify-end gap-2">
+             <Button type="button" variant="ghost" onClick={() => router.back()} disabled={isSaving}>
+                Cancel
+             </Button>
+             <Button type="submit" disabled={isSaving}>
+                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...</> : 'Save and Add to Library'}
              </Button>
         </div>
       </form>
     </Form>
   );
 
-  if (isPage) {
-    return formContent;
-  }
-
-  return (
-    <Dialog open={isOpen} onOpenChange={handleDialogChange}>
-      <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-3xl">
-        <DialogHeader>
-          <DialogTitle className="font-headline">Edit Book Details</DialogTitle>
-        </DialogHeader>
-        <div className="py-4">
-            {formContent}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
+  return formContent;
 }

@@ -6,33 +6,42 @@ import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EditBookDialog } from '@/components/book/edit-book-dialog';
+import { EditBookForm } from '@/components/book/edit-book-dialog';
 
 export default function EditBookPage() {
   const router = useRouter();
   const params = useParams();
   const { findBookById } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     if (params.id) {
-      const foundBook = findBookById(params.id as string);
-      if (foundBook) {
-        setBook(foundBook);
-      } else {
-        // If book not found, maybe it's still being added.
-        // A better UX might show a loading state and retry.
-        // For now, redirect to library.
-        // router.push('/');
-      }
+        findBookById(params.id as string).then(foundBook => {
+            if (foundBook) {
+                setBook(foundBook);
+            } else {
+                // Handle case where book is not found
+                // maybe redirect or show a not found message
+            }
+            setIsLoading(false);
+        });
     }
-  }, [params.id, findBookById, router]);
+  }, [params.id, findBookById]);
 
-  if (!book) {
+  if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
         <p className="ml-4">Loading book details...</p>
+      </div>
+    );
+  }
+
+  if (!book) {
+     return (
+      <div className="flex h-screen items-center justify-center">
+        <p className="ml-4">Book not found.</p>
       </div>
     );
   }
@@ -48,11 +57,8 @@ export default function EditBookPage() {
         </div>
         
         <div className="max-w-3xl mx-auto">
-            <h1 className="font-headline text-3xl font-bold mb-6">Edit Book Details</h1>
-            <EditBookDialog book={book} isPage>
-                {/* This is a dummy trigger, the dialog logic is used directly */}
-                <div/>
-            </EditBookDialog>
+            <h1 className="font-headline text-3xl font-bold mb-6">Edit '{book.title}'</h1>
+            <EditBookForm book={book} isNewBook={false} />
         </div>
       </div>
     </div>
