@@ -36,10 +36,13 @@ export default function BookDetailsPage() {
 
   useEffect(() => {
     if (params.id) {
+      // Directly fetch the book with its content and update the state.
+      // This ensures the component has the full book data.
       const foundBook = findBookById(params.id as string);
       setBook(foundBook || null);
     }
-  }, [params.id, findBookById, books]);
+  }, [params.id, findBookById, books]); // `books` is included to refetch if the library changes.
+
 
   const handleGenerateSummary = () => {
     if (!book || !book.content) return;
@@ -218,7 +221,7 @@ export default function BookDetailsPage() {
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 border border-dashed rounded-lg">
                     <p>No summary available for this book yet.</p>
-                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading || !book.content}>
+                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading || !hasContent}>
                       {isSummaryLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -228,7 +231,7 @@ export default function BookDetailsPage() {
                         'Generate Summary'
                       )}
                     </Button>
-                     {!book.content && <p className="text-xs text-muted-foreground">Summary generation requires book content.</p>}
+                     {!hasContent && <p className="text-xs text-muted-foreground">Summary generation requires book content.</p>}
                   </div>
                 )}
               </CardContent>
