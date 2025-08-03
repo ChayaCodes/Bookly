@@ -77,7 +77,7 @@ export default function BookReaderPage() {
                     </div>
                 );
             case 'text':
-                return <TextViewer fileContent={fileContent} />;
+                 return <TextViewer fileContent={fileContent} />;
             case 'pdf':
                 return <div className="text-center p-8">PDF viewer is not implemented yet.</div>;
             default:
