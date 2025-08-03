@@ -26,12 +26,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { storage } from '@/lib/firebase';
 import { ref, getDownloadURL, uploadString } from 'firebase/storage';
-import JSZip from 'jszip';
 
 
 type AudioChapter = {
-    name: string;
-    url: string;
+    title: string;
+    audioDataUri: string;
 }
 
 export default function BookDetailsPage() {
@@ -41,8 +40,7 @@ export default function BookDetailsPage() {
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
   const [isConverting, startConversionTransition] = useTransition();
-  const [isAudioLoading, setIsAudioLoading] = useState(false);
-  const [audioChapters, setAudioChapters] = useState<AudioChapter[]>([]);
+  const [generatedChapters, setGeneratedChapters] = useState<AudioChapter[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -53,7 +51,7 @@ export default function BookDetailsPage() {
               const audioRef = ref(storage, serverBook.audioStoragePath);
               getDownloadURL(audioRef).then(url => {
                   fetch(url).then(res => res.json()).then(data => {
-                      setAudioChapters(data.chapters.map((ch: any) => ({name: ch.title, url: ch.audioDataUri})));
+                      setGeneratedChapters(data.chapters);
                   }).catch(e => console.error("Error fetching audio chapters json", e));
               }).catch(e => console.error("Error getting download URL for audio", e));
           }
@@ -84,42 +82,6 @@ export default function BookDetailsPage() {
     });
   };
   
-    const handleListenNow = async () => {
-        if (!book || (book.type === 'audio' && !book.storagePath) || (!book.audioStoragePath && book.type !== 'audio')) {
-            toast({ variant: 'destructive', title: 'Audio Source Missing', description: "Could not find the audio file for this book."});
-            return;
-        }
-
-        const audioPath = book.type === 'audio' ? book.storagePath! : book.audioStoragePath!;
-        
-        setIsAudioLoading(true);
-        try {
-            const zipBase64 = await getArrayBufferFromStorage(audioPath);
-            const zip = await JSZip.loadAsync(Buffer.from(zipBase64, 'base64'));
-            
-            const chapterPromises = Object.keys(zip.files)
-                .filter(fileName => !zip.files[fileName].dir && (fileName.endsWith('.mp3') || fileName.endsWith('.m4a')))
-                .sort()
-                .map(async (fileName) => {
-                    const fileData = await zip.files[fileName].async('blob');
-                    const url = URL.createObjectURL(fileData);
-                    return { name: fileName.replace(/\.[^/.]+$/, ""), url };
-                });
-
-            const chapters = await Promise.all(chapterPromises);
-            setAudioChapters(chapters);
-
-            if (chapters.length === 0) {
-                 toast({ variant: 'destructive', title: 'No Audio Files Found', description: 'The ZIP file for this audiobook does not seem to contain any valid audio tracks.' });
-            }
-
-        } catch (e: any) {
-            toast({ variant: 'destructive', title: 'Could Not Load Audiobook', description: `An error occurred while processing the audio file: ${e.message}` });
-        } finally {
-            setIsAudioLoading(false);
-        }
-    };
-
 
   const handleCreateAudiobook = () => {
     if (!book || !book.storagePath) {
@@ -140,7 +102,7 @@ export default function BookDetailsPage() {
               const updatedBookData = { audioStoragePath: audioStoragePath };
               await updateBook({id: book.id, ...updatedBookData});
               setBook(prev => prev ? {...prev, ...updatedBookData} : null);
-              setAudioChapters(result.data.chapters.map((ch: any) => ({name: ch.title, url: ch.audioDataUri})));
+              setGeneratedChapters(result.data.chapters);
               toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated successfully.' });
             } catch (e: any) {
                toast({ variant: 'destructive', title: 'Storage Error', description: `Failed to save audiobook chapters: ${e.message}` });
@@ -182,8 +144,8 @@ export default function BookDetailsPage() {
     );
   }
   
-  const hasText = book.storagePath && book.type !== 'audio';
-  const hasAudio = book.audioStoragePath || book.type === 'audio';
+  const hasText = !!book.storagePath && book.type !== 'audio';
+  const hasAudio = !!book.audioStoragePath || book.type === 'audio';
 
   return (
     <div className="min-h-screen bg-background">
@@ -219,9 +181,11 @@ export default function BookDetailsPage() {
                     </Button>
                 )}
                 {hasAudio && (
-                     <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold" onClick={handleListenNow} disabled={isAudioLoading}>
-                        {isAudioLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
-                        {isAudioLoading ? 'Loading Audio...' : 'Listen Now'}
+                     <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold" asChild>
+                       <Link href={`/books/${book.id}/listen`}>
+                          <Headphones className="mr-2 h-5 w-5" />
+                          Listen Now
+                       </Link>
                     </Button>
                 )}
                 
@@ -317,19 +281,19 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
 
-            {hasAudio && audioChapters.length > 0 && (
+            {hasAudio && generatedChapters.length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle className="font-headline flex items-center gap-2">
                             <Headphones className="text-primary w-5 h-5"/>
-                            Audiobook Chapters
+                            Generated Audiobook Chapters
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                        {audioChapters.map((chapter, index) => (
+                        {generatedChapters.map((chapter, index) => (
                             <div key={index} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
-                               <p className="font-semibold flex-1">{chapter.name}</p>
-                               <audio controls src={chapter.url} className="w-full max-w-xs h-10" />
+                               <p className="font-semibold flex-1">{chapter.title}</p>
+                               <audio controls src={chapter.audioDataUri} className="w-full max-w-xs h-10" />
                             </div>
                         ))}
                     </CardContent>
