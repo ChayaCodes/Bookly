@@ -3,18 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
-import { getTextContentFromStorage } from '@/app/actions';
+import { getArrayBufferFromStorage } from '@/app/actions';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Book } from '@/lib/types';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { EpubViewer } from '@/components/book/epub-viewer';
+import { TextViewer } from '@/components/book/text-viewer';
 
 export default function BookReaderPage() {
     const router = useRouter();
     const params = useParams();
     const { findBookById } = useBookLibrary();
     const [book, setBook] = useState<Book | null>(null);
-    const [content, setContent] = useState<string>('');
+    const [fileContent, setFileContent] = useState<ArrayBuffer | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -38,9 +40,9 @@ export default function BookReaderPage() {
                     setError("This book does not have any readable content.");
                     return;
                 }
-
-                const textContent = await getTextContentFromStorage(foundBook.storagePath);
-                setContent(textContent);
+                
+                const buffer = await getArrayBufferFromStorage(foundBook.storagePath);
+                setFileContent(buffer);
 
             } catch (e: any) {
                 setError(`Failed to load book: ${e.message}`);
@@ -53,7 +55,23 @@ export default function BookReaderPage() {
     }, [params.id, findBookById]);
 
     const goBack = () => {
+        // Navigate back to the book details page
         router.push(`/books/${params.id}`);
+    }
+
+    const renderBookContent = () => {
+        if (!book || !fileContent) return null;
+
+        switch(book.type) {
+            case 'epub':
+                return <EpubViewer fileContent={fileContent} />;
+            case 'text':
+                return <TextViewer fileContent={fileContent} />;
+            case 'pdf':
+                return <p>PDF viewer is not implemented yet.</p>;
+            default:
+                return <p>Unsupported book type.</p>;
+        }
     }
 
     if (isLoading) {
@@ -66,7 +84,7 @@ export default function BookReaderPage() {
     }
     
     return (
-        <div className="min-h-screen bg-background text-foreground">
+        <div className="min-h-screen bg-background text-foreground flex flex-col">
              <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b">
                 <div className="container mx-auto p-4 flex items-center justify-between">
                     <Button variant="ghost" onClick={goBack}>
@@ -81,19 +99,14 @@ export default function BookReaderPage() {
                     <div className="w-24"></div>
                 </div>
             </header>
-            <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-               
+            <main className="flex-1 container mx-auto">
                 {error ? (
-                     <Card className="max-w-3xl mx-auto">
+                     <Card className="max-w-3xl mx-auto mt-8">
                         <CardHeader><CardTitle>Error</CardTitle></CardHeader>
                         <CardContent><p className="text-destructive">{error}</p></CardContent>
                     </Card>
                 ) : (
-                    <div className="max-w-3xl mx-auto bg-card p-6 sm:p-8 lg:p-10 rounded-lg shadow-sm">
-                        <pre className="whitespace-pre-wrap font-code text-lg leading-relaxed">
-                            {content}
-                        </pre>
-                    </div>
+                   renderBookContent()
                 )}
             </main>
         </div>

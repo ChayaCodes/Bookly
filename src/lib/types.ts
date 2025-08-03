@@ -2,7 +2,7 @@ import { GenerateBookMetadataOutput } from "@/ai/flows/generate-book-metadata";
 
 export interface Book {
   id: string; // Document ID in Firestore
-  type: 'text' | 'audio';
+  type: 'text' | 'audio' | 'epub' | 'pdf';
   title: string;
   author: string;
   coverImage?: string; // URL for the image
@@ -20,6 +20,7 @@ export interface Book {
 export interface PendingBook {
     file: File;
     fileDataUrl: string; // Used for actual file upload
+    type: 'epub' | 'pdf' | 'text';
     metadata: Partial<GenerateBookMetadataOutput> & { title: string }; // Title is mandatory
     coverPreviewUrl?: string; // Used for client-side preview (can be blob or data URL)
 }

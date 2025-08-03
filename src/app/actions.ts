@@ -55,6 +55,7 @@ const saveBookSchema = z.object({
   fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
   fileName: z.string().min(1),
   coverDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format.").nullable(),
+  type: z.enum(['epub', 'pdf', 'text']),
 });
 
 
@@ -69,7 +70,6 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     try {
         const newBookData: Omit<Book, 'id' | 'coverImage' | 'storagePath'> = {
             ...bookMetadata,
-            type: 'text',
             language: 'English',
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
@@ -103,10 +103,6 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
             // No cover, trigger AI generation in the background
             generateCoverWithAI(bookId, bookMetadata.title, bookMetadata.description, bookMetadata['data-ai-hint']);
         }
-
-        // Trigger AI tag generation if needed (or other async tasks)
-        // For now, tags are saved directly, but this is where you'd put an async call
-        // if you wanted AI to generate them post-save.
 
         return { bookId };
 
@@ -155,27 +151,31 @@ async function generateCoverWithAI(bookId: string, title: string, description: s
 
 // --- OTHER ACTIONS (summarize, create audiobook etc.) ---
 
-export async function getTextContentFromStorage(storagePath: string): Promise<string> {
+export async function getArrayBufferFromStorage(storagePath: string): Promise<ArrayBuffer> {
     const fileRef = ref(storage, storagePath);
     try {
-        const fileBuffer = await getBytes(fileRef);
-        try {
-            // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
-            const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
-            const text = decoder.decode(fileBuffer);
-            if (text.trim().length === 0) {
-                 return "This document appears to be empty or in a format that could not be read as text.";
-            }
-            return text;
-        } catch (e) {
-            console.warn(`Could not decode ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
-            return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
-        }
+        return await getBytes(fileRef);
     } catch (e: any) {
         if (e.code === 'storage/object-not-found') {
             throw new Error("Could not find the book file in storage. It may have been deleted.");
         }
         throw e;
+    }
+}
+
+export async function getTextContentFromStorage(storagePath: string): Promise<string> {
+    const fileBuffer = await getArrayBufferFromStorage(storagePath);
+    try {
+        // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
+        const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+        const text = decoder.decode(fileBuffer);
+        if (text.trim().length === 0) {
+             return "This document appears to be empty or in a format that could not be read as text.";
+        }
+        return text;
+    } catch (e) {
+        console.warn(`Could not decode ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
+        return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
     }
 }
 
