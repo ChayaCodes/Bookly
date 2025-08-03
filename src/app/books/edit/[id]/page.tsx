@@ -6,7 +6,7 @@ import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { EditBookForm } from '@/components/book/edit-book-dialog';
+import { EditBookForm } from '@/components/book/edit-book-form';
 
 export default function EditBookPage() {
   const router = useRouter();

@@ -15,11 +15,11 @@ import {
   getDocs,
   Timestamp,
 } from 'firebase/firestore';
-import { ref, deleteObject } from "firebase/storage";
+import { ref, deleteObject, uploadString, getDownloadURL } from "firebase/storage";
 
 interface BookLibraryContextType {
   books: Book[];
-  updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
+  updateBook: (updatedBook: Partial<Book> & { id: string, coverDataUrl?: string | null }) => Promise<void>;
   deleteBook: (id: string) => Promise<void>;
   findBookById: (id: string) => Promise<Book | undefined>;
   refreshBooks: () => Promise<void>; // Add a manual refresh function
@@ -83,21 +83,27 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   }, []);
   
 
-  const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
-    const { id, ...dataToUpdate } = updatedBook;
+  const updateBook = async (updatedBook: Partial<Book> & { id: string, coverDataUrl?: string | null }) => {
+    const { id, coverDataUrl, ...dataToUpdate } = updatedBook;
     const bookDocRef = doc(db, 'books', id);
+    
+    if (coverDataUrl) {
+      const coverImageRef = ref(storage, `covers/${id}.png`);
+      await uploadString(coverImageRef, coverDataUrl, 'data_url');
+      const downloadURL = await getDownloadURL(coverImageRef);
+      dataToUpdate.coverImage = downloadURL;
+      console.log(`[${id}] ✅ Cover image updated and URL generated: ${downloadURL}`);
+    }
+    
     await updateDoc(bookDocRef, dataToUpdate);
-    // No need to call fetchBooks here, onSnapshot will handle it
   };
   
   const deleteBook = async (id: string) => {
     const bookDocRef = doc(db, 'books', id);
     const bookToDelete = await findBookById(id);
 
-    // Delete Firestore document first
     await deleteDoc(bookDocRef);
 
-    // Then delete associated files from Storage
     if (bookToDelete?.storagePath) {
         try {
             await deleteObject(ref(storage, bookToDelete.storagePath));
@@ -107,9 +113,10 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
     }
      if (bookToDelete?.coverImage && bookToDelete.coverImage.includes('firebasestorage')) {
         try {
-            await deleteObject(ref(storage, bookToDelete.coverImage));
+            const coverRef = ref(storage, bookToDelete.coverImage);
+            await deleteObject(coverRef);
         } catch (e: any) {
-            if (e.code !== 'storage/object-not-found') console.error("Error deleting cover image file:", e);
+             if (e.code !== 'storage/object-not-found') console.error("Error deleting cover image file:", e);
         }
     }
     if (bookToDelete?.audioStoragePath) {
@@ -119,11 +126,9 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
             if (e.code !== 'storage/object-not-found') console.error("Error deleting audio file:", e);
        }
     }
-    // onSnapshot will update the list automatically
   };
   
   const findBookById = async (id: string): Promise<Book | undefined> => {
-    // Always fetch from server for most up-to-date data
     const bookDocRef = doc(db, 'books', id);
     const bookDoc = await getDoc(bookDocRef);
 

@@ -19,6 +19,7 @@ export interface Book {
 
 export interface PendingBook {
     file: File;
-    fileDataUrl: string;
-    metadata: GenerateBookMetadataOutput;
+    fileDataUrl: string; // Used for actual file upload
+    metadata: Partial<GenerateBookMetadataOutput> & { title: string }; // Title is mandatory
+    coverPreviewUrl?: string; // Used for client-side preview (can be blob or data URL)
 }
