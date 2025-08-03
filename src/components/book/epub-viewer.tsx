@@ -10,6 +10,7 @@ interface EpubViewerProps {
     fileContent: ArrayBuffer;
     onTocReady: (toc: NavItem[]) => void;
     onLocationChange: (location: string) => void;
+    onChapterChange: (chapter: NavItem) => void;
 }
 
 export interface EpubViewerRef {
@@ -18,7 +19,7 @@ export interface EpubViewerRef {
     prevPage: () => void;
 }
 
-export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileContent, onTocReady, onLocationChange }, ref) => {
+export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileContent, onTocReady, onLocationChange, onChapterChange }, ref) => {
     const viewerRef = useRef<HTMLDivElement>(null);
     const bookRef = useRef<Book | null>(null);
     const renditionRef = useRef<Rendition | null>(null);
@@ -59,19 +60,27 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
             r.themes.select('custom');
         };
 
-        book.ready.then(() => {
-            onTocReady(book.navigation.toc);
-        });
+        book.ready.then(async () => {
+            const toc = book.navigation.toc;
+            onTocReady(toc);
+            
+            rendition.on('rendered', (section: any) => {
+                applyTheme(rendition);
+                const currentNavItem = book.navigation.get(section.href);
+                if (currentNavItem && onChapterChange) {
+                    onChapterChange(currentNavItem);
+                }
+            });
+            
+            rendition.on('relocated', (location: any) => {
+                onLocationChange(location.start.cfi);
+                const currentNavItem = book.navigation.get(location.start.href);
+                 if (currentNavItem && onChapterChange) {
+                    onChapterChange(currentNavItem);
+                }
+            });
 
-        rendition.on('rendered', (section: any) => {
-            applyTheme(rendition);
-        });
-        
-        rendition.on('relocated', (location: any) => {
-            onLocationChange(location.start.cfi);
-        });
-
-        rendition.display().then(() => {
+            await rendition.display();
             applyTheme(rendition);
             setIsLoading(false);
         });
@@ -79,7 +88,7 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
         return () => {
             book.destroy();
         };
-    }, [fileContent, onTocReady, onLocationChange, theme]);
+    }, [fileContent, onTocReady, onLocationChange, onChapterChange, theme]);
     
     useEffect(() => {
         const r = renditionRef.current;
@@ -116,7 +125,7 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
     }));
 
     return (
-        <div className="w-full h-full relative" style={{height: 'calc(100vh - 5rem)'}}>
+        <div className="w-full h-full relative" style={{height: 'calc(100vh)'}}>
              {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-background/80 z-20">
                     <Loader2 className="h-8 w-8 animate-spin text-primary" />
