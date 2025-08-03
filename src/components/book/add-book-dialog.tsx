@@ -15,6 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import ePub from 'epubjs';
 import { useRouter } from 'next/navigation';
+import type { Book } from '@/lib/types';
 
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
@@ -25,7 +26,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook, updateBook } = useBookLibrary();
+  const { addBook, updateBook, findBookById } = useBookLibrary();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -38,7 +39,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as ArrayBuffer);
       reader.onerror = reject;
-      reader.readAsArrayBuffer(file);
+      reader.readAsText(file);
     });
   };
 
@@ -64,7 +65,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         let bookTextContent = '';
         let coverImageUrl = `https://placehold.co/300x450/9ca3da/2a2e45`;
         
-        let initialBook = {
+        let initialBook: Book = {
           id: bookId,
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
           author: 'Unknown',
@@ -90,16 +91,13 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
                 initialBook.coverImage = URL.createObjectURL(coverImageBlob);
             }
-            // For EPUB, getting full text can be complex, we'll do it via AI later if needed
-            // For now, we add the book and navigate to edit.
-        }
-
-        // For all files, we'll try to get text content for AI processing
-        try {
-            bookTextContent = await readFileAsText(file);
-            initialBook.content = bookTextContent;
-        } catch (e) {
-            console.warn("Could not read file as text:", e);
+        } else {
+           try {
+                bookTextContent = await readFileAsText(file);
+                initialBook.content = bookTextContent;
+            } catch (e) {
+                console.warn("Could not read file as text:", e);
+            }
         }
 
         addBook(initialBook);
@@ -111,25 +109,32 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         form.reset();
         router.push(`/books/edit/${bookId}`);
         
-        // Asynchronous AI Processing
-        if (bookTextContent.length >= 100) {
+        // Asynchronous AI Processing only if we have text content
+        if (bookTextContent && bookTextContent.length >= 100) {
             generateMetadataAction({ bookText: bookTextContent }).then(result => {
                 if (result.data) {
-                    updateBook({
-                        id: bookId,
-                        title: result.data.title,
-                        author: result.data.author,
-                        description: result.data.description,
-                        tags: result.data.tags,
-                        // Don't overwrite existing values if AI returns nothing
-                        ...Object.fromEntries(Object.entries(result.data).filter(([_, v]) => v != null)),
-                    });
-                     toast({
-                        title: 'AI Update',
-                        description: `AI has finished processing "${result.data.title}".`,
-                    });
+                    const currentBook = findBookById(bookId);
+                    if (!currentBook) return;
+
+                    // Create a payload with only the new non-empty data from AI
+                    const updatePayload: Partial<Book> = {};
+                    if (result.data.title) updatePayload.title = result.data.title;
+                    if (result.data.author) updatePayload.author = result.data.author;
+                    if (result.data.description) updatePayload.description = result.data.description;
+                    if (result.data.tags && result.data.tags.length > 0) updatePayload.tags = result.data.tags;
+
+                    // Only update if there's something to update
+                    if (Object.keys(updatePayload).length > 0) {
+                        updateBook({
+                            id: bookId,
+                            ...updatePayload,
+                        });
+                        toast({
+                            title: 'AI Update',
+                            description: `AI has finished processing "${currentBook.title}".`,
+                        });
+                    }
                 }
-                // Silently fail if AI fails, user can edit manually
             });
         }
 
