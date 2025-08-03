@@ -19,9 +19,15 @@ async function getTextContentFromStorage(storagePath: string): Promise<string> {
     const fileRef = ref(storage, storagePath);
     const blob = await getBlob(fileRef);
     // This is a placeholder for actual text extraction from PDF/EPUB on the server.
-    // For now, we assume the file is plain text.
     // In a real app, you'd use libraries like pdf-parse or epubjs on the server.
-    return await blob.text();
+    // For now, we are just returning a placeholder text as parsing is complex.
+    try {
+        const text = await blob.text();
+        return text;
+    } catch (e) {
+        console.warn(`Could not read ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
+        return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
+    }
 }
 
 
