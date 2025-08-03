@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from 'react';
+import ePub from 'epubjs';
+import * as pdfjsLib from 'pdfjs-dist';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
@@ -9,19 +11,23 @@ import { Button } from '@/components/ui/button';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { Input } from '@/components/ui/input';
 import { Loader2, Sparkles, UploadCloud } from 'lucide-react';
-import { extractMetadataAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import { useRouter } from 'next/navigation';
 import { useBookLibrary } from '@/hooks/use-book-library';
+import type { PendingBook } from '@/lib/types';
+import { extractMetadataAction } from '@/app/actions';
 
-// Function to read file as text
-const fileToText = (file: File): Promise<string> => {
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+
+
+// Function to read file as ArrayBuffer
+const fileToArrayBuffer = (file: File): Promise<ArrayBuffer> => {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
+        reader.onloadend = () => resolve(reader.result as ArrayBuffer);
         reader.onerror = reject;
-        reader.readAsText(file);
+        reader.readAsArrayBuffer(file);
     });
 };
 
@@ -34,7 +40,6 @@ const fileToDataURL = (file: File): Promise<string> => {
         reader.readAsDataURL(file);
     });
 };
-
 
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
@@ -63,37 +68,72 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         description: `Please wait while we analyze "${file.name}".`,
       });
 
-      const fileText = await fileToText(file);
       const fileDataUrl = await fileToDataURL(file);
-
-      const result = await extractMetadataAction({
-          fileName: file.name,
-          fileText: fileText,
-      });
-
-      if (result.error || !result.data) {
-           toast({
-              variant: 'destructive',
-              title: 'Processing Failed',
-              description: result.error || 'Could not extract metadata from the book.'
-           });
-      } else {
-         toast({
-            title: 'Processing Complete!',
-            description: `Review the extracted details for "${file.name}".`,
-         });
-         
-         // Store the pending book data in context/state management
-         setPendingBook({
-            file,
-            fileDataUrl,
-            metadata: result.data
-         });
-
-         setIsOpen(false); // Close this dialog
-         router.push('/books/new'); // Navigate to the new book editing page
-      }
+      const fileType = file.type;
+      const fileName = file.name.replace(/\.[^/.]+$/, "");
       
+      let pendingBook: PendingBook = {
+        file,
+        fileDataUrl,
+        metadata: { title: fileName } // Default title
+      };
+
+      if (fileType === 'application/epub+zip') {
+          const arrayBuffer = await fileToArrayBuffer(file);
+          const book = ePub(arrayBuffer);
+          const metadata = await book.loaded.metadata;
+          const coverUrl = await book.coverUrl();
+
+          pendingBook.metadata.title = metadata.title || fileName;
+          pendingBook.metadata.author = metadata.creator || 'Unknown';
+          pendingBook.metadata.description = metadata.description || 'No description found in EPUB.';
+          if (coverUrl) {
+            const coverBlob = await fetch(coverUrl).then(r => r.blob());
+            pendingBook.coverPreviewUrl = URL.createObjectURL(coverBlob);
+          }
+
+      } else if (fileType === 'application/pdf') {
+          const arrayBuffer = await fileToArrayBuffer(file);
+          const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
+          const page = await pdf.getPage(1);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          const context = canvas.getContext('2d')!;
+          await page.render({ canvasContext: context, viewport }).promise;
+          pendingBook.coverPreviewUrl = canvas.toDataURL();
+          pendingBook.metadata.title = fileName;
+          
+          // For PDFs, we still call the AI for text-based metadata
+          const firstPageText = await page.getTextContent();
+          const text = firstPageText.items.map(item => (item as any).str).join(' ');
+          const result = await extractMetadataAction({ fileName: file.name, fileText: text });
+          if (!result.error && result.data) {
+             pendingBook.metadata = {...pendingBook.metadata, ...result.data};
+          }
+
+      } else { // TXT, ZIP, etc.
+          // For simple text files, we can call the AI directly
+          const text = await file.text();
+          const result = await extractMetadataAction({ fileName: file.name, fileText: text });
+          if (!result.error && result.data) {
+             pendingBook.metadata = result.data;
+          } else {
+             pendingBook.metadata.title = fileName;
+          }
+      }
+
+      toast({
+          title: 'Processing Complete!',
+          description: `Review the extracted details for "${pendingBook.metadata.title}".`,
+      });
+      
+      setPendingBook(pendingBook);
+
+      setIsOpen(false);
+      router.push('/books/new');
+
     } catch (error) {
       console.error("Error in processing:", error);
       toast({
@@ -166,7 +206,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                       <Input
                         type="file"
                         className="absolute w-full h-full opacity-0 cursor-pointer"
-                        accept=".txt,.epub,.md,.pdf"
+                        accept=".txt,.epub,.md,.pdf,.zip"
                         onChange={(e) => field.onChange(e.target.files ? e.target.files[0] : null)}
                         disabled={isProcessing}
                       />

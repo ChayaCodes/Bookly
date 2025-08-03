@@ -54,6 +54,7 @@ const saveBookSchema = z.object({
   'data-ai-hint': z.string(),
   fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
   fileName: z.string().min(1),
+  coverDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format.").nullable(),
 });
 
 
@@ -62,10 +63,9 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
     if (!validation.success) {
         return { error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
     }
-    const { fileDataUrl, fileName, ...bookMetadata } = validation.data;
+    const { fileDataUrl, fileName, coverDataUrl, ...bookMetadata } = validation.data;
 
     let bookId: string;
-    // 1. Create the final document in Firestore
     try {
         const newBookData: Omit<Book, 'id' | 'coverImage' | 'storagePath'> = {
             ...bookMetadata,
@@ -74,7 +74,7 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };
-        console.log("✅ Firestore record about to be created:", newBookData);
+        console.log("✅ Firestore record (initial) about to be created:", newBookData);
         const docRef = await addDoc(collection(db, "books"), newBookData);
         bookId = docRef.id;
         console.log("✅ Firestore record created:", { id: bookId, ...newBookData });
@@ -83,7 +83,7 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
         return { error: 'Failed to create book record in the database.' };
     }
     
-    // 2. Upload the file to Firebase Storage
+    // Upload main book file
     const storagePath = `books/${bookId}/${fileName}`;
     const storageRef = ref(storage, storagePath);
     
@@ -95,40 +95,57 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
         await updateDoc(doc(db, "books", bookId), { storagePath });
         console.log(`[${bookId}] ✅ Firestore record updated with storagePath.`);
 
-        // 3. Trigger cover generation in the background
-        generateCoverInBackground(bookId, bookMetadata.title, bookMetadata.description, bookMetadata['data-ai-hint']);
+        // Handle cover image
+        if (coverDataUrl) {
+            // A cover was extracted or uploaded by the user
+            await generateCoverFromDataUrl(bookId, coverDataUrl);
+        } else {
+            // No cover, trigger AI generation in the background
+            generateCoverWithAI(bookId, bookMetadata.title, bookMetadata.description, bookMetadata['data-ai-hint']);
+        }
+
+        // Trigger AI tag generation if needed (or other async tasks)
+        // For now, tags are saved directly, but this is where you'd put an async call
+        // if you wanted AI to generate them post-save.
 
         return { bookId };
 
     } catch (e: any) {
         console.error(`[${bookId}] ❌ Server-side upload failed:`, e);
         const errorMessage = e.message || 'An unknown error occurred during file upload.';
-        // Don't delete the record, just update with an error
         await updateDoc(doc(db, 'books', bookId), { description: `File upload failed: ${errorMessage}` });
         return { error: errorMessage };
     }
 }
 
+async function generateCoverFromDataUrl(bookId: string, dataUrl: string) {
+     const bookDocRef = doc(db, "books", bookId);
+    try {
+        console.log(`[${bookId}] 🎨 Uploading provided cover image...`);
+        const coverImageRef = ref(storage, `covers/${bookId}.png`);
+        await uploadString(coverImageRef, dataUrl, 'data_url');
+        const downloadURL = await getDownloadURL(coverImageRef);
+        console.log(`[${bookId}] ✅ Cover image URL generated: ${downloadURL}`);
+        await updateDoc(bookDocRef, { coverImage: downloadURL });
+        console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL.`);
+    } catch (e: any) {
+        console.error(`[${bookId}] ❌ Provided cover upload failed:`, e);
+    }
+}
 
-// This function runs in the background and does not block the initial response
-async function generateCoverInBackground(bookId: string, title: string, description: string, hint: string) {
+
+async function generateCoverWithAI(bookId: string, title: string, description: string, hint: string) {
     const bookDocRef = doc(db, "books", bookId);
     try {
-        console.log(`[${bookId}] 🎨 Generating cover image...`);
+        console.log(`[${bookId}] 🎨 Generating cover image with AI...`);
         const coverResult = await generateBookCover({ title, description, 'data-ai-hint': hint });
 
         if (coverResult.coverImage) {
-            const coverImageRef = ref(storage, `covers/${bookId}.png`);
-            await uploadString(coverImageRef, coverResult.coverImage, 'data_url');
-            const downloadURL = await getDownloadURL(coverImageRef);
-            console.log(`[${bookId}] ✅ Cover image URL generated: ${downloadURL}`);
-            await updateDoc(bookDocRef, { coverImage: downloadURL });
-            console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL.`);
+            await generateCoverFromDataUrl(bookId, coverResult.coverImage);
         }
     } catch (e: any) {
-        console.error(`[${bookId}] ❌ Cover generation failed:`, e);
+        console.error(`[${bookId}] ❌ AI Cover generation failed:`, e);
         const errorMessage = e.message || 'An unknown error occurred during cover generation.';
-        // Update the description to indicate the failure
         const existingDoc = await getDoc(bookDocRef);
         const existingDesc = existingDoc.data()?.description || '';
         await updateDoc(bookDocRef, { description: `${existingDesc}\n\nCover generation failed: ${errorMessage}` });
@@ -146,8 +163,6 @@ async function getTextContentFromStorage(storagePath: string): Promise<string> {
     const fileRef = ref(storage, storagePath);
     try {
         const fileBuffer = await getBytes(fileRef);
-        // This is a placeholder for actual text extraction from PDF/EPUB on the server.
-        // For now, we are just returning a placeholder text as parsing is complex.
         try {
             const text = new TextDecoder().decode(fileBuffer);
             if (text.trim().length === 0) {
