@@ -16,6 +16,10 @@ import { cn } from '@/lib/utils';
 import ePub from 'epubjs';
 import { useRouter } from 'next/navigation';
 import type { Book } from '@/lib/types';
+import * as pdfjsLib from 'pdfjs-dist/build/pdf';
+
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+
 
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
@@ -39,7 +43,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as ArrayBuffer);
       reader.onerror = reject;
-      reader.readAsText(file);
+      reader.readAsArrayBuffer(file);
     });
   };
 
@@ -78,8 +82,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           readingProgress: 0,
         };
 
+        const arrayBuffer = await readFileAsArrayBuffer(file);
+
         if (extension === 'epub') {
-            const arrayBuffer = await readFileAsArrayBuffer(file);
             const book = ePub(arrayBuffer);
             const metadata = await book.loaded.metadata;
             if (metadata.title) initialBook.title = metadata.title;
@@ -91,20 +96,56 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
                 initialBook.coverImage = URL.createObjectURL(coverImageBlob);
             }
+             const textContent = await book.loaded.spine.then(spine => {
+                return Promise.all(spine.items.map(item => {
+                    return item.load(book.load.bind(book)).then(doc => {
+                        return doc.body.innerText;
+                    });
+                }));
+            }).then(texts => texts.join('\n'));
+            bookTextContent = textContent;
+
+        } else if (extension === 'pdf') {
+            const pdf = await pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
+            
+            // Extract cover image from first page
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 1.5 });
+            const canvas = document.createElement('canvas');
+            const context = canvas.getContext('2d');
+            canvas.height = viewport.height;
+            canvas.width = viewport.width;
+
+            if (context) {
+                await page.render({ canvasContext: context, viewport: viewport }).promise;
+                initialBook.coverImage = canvas.toDataURL();
+            }
+
+            // Extract text content
+            const textContents = [];
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const textContent = await page.getTextContent();
+                textContents.push(textContent.items.map(item => ('str' in item) ? item.str : '').join(' '));
+            }
+            bookTextContent = textContents.join('\n');
+            
         } else {
            try {
                 bookTextContent = await readFileAsText(file);
-                initialBook.content = bookTextContent;
             } catch (e) {
                 console.warn("Could not read file as text:", e);
             }
         }
-
+        
+        initialBook.content = bookTextContent;
         addBook(initialBook);
+
         toast({
           title: 'Book Added!',
           description: `"${initialBook.title}" is being processed.`,
         });
+
         setIsOpen(false);
         form.reset();
         router.push(`/books/edit/${bookId}`);
