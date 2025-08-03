@@ -34,7 +34,7 @@ import { cn } from '@/lib/utils';
 
 interface AudioPlayerProps {
     book: Book;
-    chapters: { name: string; url: string }[];
+    chapters: { title: string; url: string }[];
 }
 
 
@@ -166,7 +166,7 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
 
                     {/* Chapter Info */}
                      <div className="text-center space-y-1">
-                        <h2 className="text-2xl font-bold font-headline truncate">{currentChapter.name}</h2>
+                        <h2 className="text-2xl font-bold font-headline truncate">{currentChapter.title}</h2>
                         <p className="text-muted-foreground">{book.author}</p>
                     </div>
 
@@ -235,7 +235,7 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
                                             onClick={() => setCurrentChapterIndex(index)}
                                             className={cn("w-full text-left p-2 rounded-md text-sm hover:bg-muted", currentChapterIndex === index && "bg-muted font-bold")}
                                         >
-                                           {index + 1}. {chapter.name}
+                                           {index + 1}. {chapter.title}
                                         </button>
                                     ))}
                                 </div>
@@ -251,3 +251,4 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
     );
 }
 
+    
