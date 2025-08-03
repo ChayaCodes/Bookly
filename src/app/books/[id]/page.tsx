@@ -37,10 +37,6 @@ export default function BookDetailsPage() {
   useEffect(() => {
     if (params.id) {
       const foundBook = findBookById(params.id as string);
-      // If the book from the main list is found, but content might still be loading,
-      // we set it. The 'books' dependency ensures we re-run if the main list changes.
-      // The content comes from a separate storage and should be present in the foundBook object
-      // if `findBookById` works correctly.
       setBook(foundBook || null);
     }
   }, [params.id, findBookById, books]);
@@ -270,5 +266,3 @@ export default function BookDetailsPage() {
     </div>
   );
 }
-
-    
