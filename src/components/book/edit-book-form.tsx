@@ -14,8 +14,10 @@ import type { Book, PendingBook } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Textarea } from '../ui/textarea';
 import { Card, CardContent } from '../ui/card';
-import { saveBookAction } from '@/app/actions';
+import { saveBookAction, triggerAICoverGeneration } from '@/app/actions';
 import { Loader2, Upload } from 'lucide-react';
+import { storage } from '@/lib/firebase';
+import { ref, uploadString, getDownloadURL, uploadBytes } from 'firebase/storage';
 
 const FormSchema = z.object({
   title: z.string().min(1, 'Title is required.'),
@@ -96,26 +98,44 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
     if (isNewBook) {
         const pendingBook = book as PendingBook;
         try {
-            toast({ title: 'Saving Book...', description: 'Uploading file and saving details.' });
+            toast({ title: 'Saving Book...', description: 'Saving details to the database.' });
             
+            // Step 1: Save metadata to Firestore via Server Action
+            const metadataResult = await saveBookAction({
+                ...data,
+                tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
+                'data-ai-hint': pendingBook.metadata['data-ai-hint'] || 'book cover',
+                fileName: pendingBook.file.name,
+                type: pendingBook.type
+            });
+
+            if (metadataResult.error) throw new Error(metadataResult.error);
+
+            const { bookId, storagePath } = metadataResult;
+
+            // Step 2: Upload main file directly from client
+            toast({ title: 'Uploading File...', description: 'Please wait while the book is uploaded.' });
+            const bookFileRef = ref(storage, storagePath);
+            await uploadBytes(bookFileRef, pendingBook.file);
+            console.log("✅ Main book file uploaded to:", storagePath);
+
+            // Step 3: Handle cover image
             let coverDataUrl = (book as PendingBook).coverPreviewUrl || null;
-            // If user selected a new cover, convert it to dataURL
             if(newCoverFile) {
                 coverDataUrl = await fileToDataURL(newCoverFile);
             }
 
-            const result = await saveBookAction({
-                ...data,
-                tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-                'data-ai-hint': pendingBook.metadata['data-ai-hint'] || 'book cover',
-                fileDataUrl: pendingBook.fileDataUrl,
-                fileName: pendingBook.file.name,
-                coverDataUrl: coverDataUrl,
-                type: pendingBook.type
-            });
-
-            if (result.error) {
-                throw new Error(result.error);
+            if (coverDataUrl) {
+                // If there's a cover (from epub or user upload), upload it
+                const coverImageRef = ref(storage, `covers/${bookId}.png`);
+                await uploadString(coverImageRef, coverDataUrl, 'data_url');
+                const downloadURL = await getDownloadURL(coverImageRef);
+                // Update firestore record with coverImage URL (client side update)
+                await updateBook({ id: bookId, coverImage: downloadURL });
+                console.log(`✅ Cover image uploaded and record updated.`);
+            } else if (pendingBook.type !== 'audio') {
+                // If no cover, trigger AI generation in the background
+                triggerAICoverGeneration(bookId);
             }
 
             toast({ title: 'Book Added!', description: `"${data.title}" is now in your library.` });

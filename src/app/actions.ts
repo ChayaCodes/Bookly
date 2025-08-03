@@ -45,7 +45,7 @@ export async function extractMetadataAction(values: z.infer<typeof extractMetada
 }
 
 
-// Action to save the final book data and upload the file
+// Action to save the book metadata and prepare for upload
 const saveBookSchema = z.object({
   title: z.string().min(1),
   author: z.string().min(1),
@@ -53,24 +53,25 @@ const saveBookSchema = z.object({
   tags: z.array(z.string()),
   language: z.string(),
   'data-ai-hint': z.string(),
-  fileDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format."),
   fileName: z.string().min(1),
-  coverDataUrl: z.string().refine(val => val.startsWith('data:'), "Invalid data URL format.").nullable(),
   type: z.enum(['epub', 'pdf', 'text', 'audio']),
 });
 
 
-export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Promise<{ bookId: string } | { error: string }> {
+export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Promise<{ bookId: string, storagePath: string } | { error: string }> {
     const validation = saveBookSchema.safeParse(values);
     if (!validation.success) {
         return { error: `Invalid input: ${validation.error.errors.map(e => e.message).join(', ')}` };
     }
-    const { fileDataUrl, fileName, coverDataUrl, ...bookMetadata } = validation.data;
+    const { fileName, ...bookMetadata } = validation.data;
 
     let bookId: string;
+    const storagePath = `books/${Date.now()}_${fileName}`; // Use a more unique path
+
     try {
-        const newBookData: Omit<Book, 'id' | 'coverImage' | 'storagePath'> = {
+        const newBookData: Omit<Book, 'id' | 'coverImage'> = {
             ...bookMetadata,
+            storagePath, // Save path immediately
             readingProgress: 0,
             createdAt: Timestamp.now().toMillis(),
         };
@@ -78,39 +79,48 @@ export async function saveBookAction(values: z.infer<typeof saveBookSchema>): Pr
         const docRef = await addDoc(collection(db, "books"), newBookData);
         bookId = docRef.id;
         console.log("✅ Firestore record created:", { id: bookId, ...newBookData });
+        
+        // Return the ID and path for the client to handle the upload
+        return { bookId, storagePath };
+
     } catch (e: any) {
         console.error("❌ Failed to create book in Firestore:", e);
         return { error: 'Failed to create book record in the database.' };
     }
-    
-    // Upload main book file
-    const storagePath = `books/${bookId}/${fileName}`;
-    const storageRef = ref(storage, storagePath);
-    
+}
+
+// This action is now called *after* the client has uploaded the cover.
+export async function triggerAICoverGeneration(bookId: string) {
+    const bookDocRef = doc(db, "books", bookId);
+    const bookDoc = await getDoc(bookDocRef);
+
+    if (!bookDoc.exists()) {
+        console.error(`[${bookId}] ❌ Book not found for AI cover generation.`);
+        return;
+    }
+    const bookData = bookDoc.data();
+
+    // Don't generate a cover if one already exists or if it's an audiobook.
+    if (bookData.coverImage || bookData.type === 'audio') {
+        return;
+    }
+
     try {
-        await uploadString(storageRef, fileDataUrl, 'data_url');
-        console.log(`[${bookId}] ✅ File upload successful for:`, storagePath);
-        
-        // Update the book document with the storage path
-        await updateDoc(doc(db, "books", bookId), { storagePath });
-        console.log(`[${bookId}] ✅ Firestore record updated with storagePath.`);
+        console.log(`[${bookId}] 🎨 Generating cover image with AI...`);
+        const coverResult = await generateBookCover({ 
+            title: bookData.title, 
+            description: bookData.description, 
+            'data-ai-hint': bookData['data-ai-hint'] || 'book cover'
+        });
 
-        // Handle cover image
-        if (coverDataUrl) {
-            // A cover was extracted or uploaded by the user
-            await generateCoverFromDataUrl(bookId, coverDataUrl);
-        } else if (bookMetadata.type !== 'audio') {
-            // No cover, trigger AI generation in the background (but not for audiobooks)
-            generateCoverWithAI(bookId, bookMetadata.title, bookMetadata.description, bookMetadata['data-ai-hint']);
+        if (coverResult.coverImage) {
+            await generateCoverFromDataUrl(bookId, coverResult.coverImage);
         }
-
-        return { bookId };
-
     } catch (e: any) {
-        console.error(`[${bookId}] ❌ Server-side upload failed:`, e);
-        const errorMessage = e.message || 'An unknown error occurred during file upload.';
-        await updateDoc(doc(db, 'books', bookId), { description: `File upload failed: ${errorMessage}` });
-        return { error: errorMessage };
+        console.error(`[${bookId}] ❌ AI Cover generation failed:`, e);
+        const errorMessage = e.message || 'An unknown error occurred during cover generation.';
+        const existingDesc = bookDoc.data()?.description || '';
+        await updateDoc(bookDocRef, { description: `${existingDesc}\n\nCover generation failed: ${errorMessage}` });
     }
 }
 
@@ -126,25 +136,6 @@ async function generateCoverFromDataUrl(bookId: string, dataUrl: string) {
         console.log(`[${bookId}] ✅ Firestore record updated with Cover Image URL.`);
     } catch (e: any) {
         console.error(`[${bookId}] ❌ Provided cover upload failed:`, e);
-    }
-}
-
-
-async function generateCoverWithAI(bookId: string, title: string, description: string, hint: string) {
-    const bookDocRef = doc(db, "books", bookId);
-    try {
-        console.log(`[${bookId}] 🎨 Generating cover image with AI...`);
-        const coverResult = await generateBookCover({ title, description, 'data-ai-hint': hint });
-
-        if (coverResult.coverImage) {
-            await generateCoverFromDataUrl(bookId, coverResult.coverImage);
-        }
-    } catch (e: any) {
-        console.error(`[${bookId}] ❌ AI Cover generation failed:`, e);
-        const errorMessage = e.message || 'An unknown error occurred during cover generation.';
-        const existingDoc = await getDoc(bookDocRef);
-        const existingDesc = existingDoc.data()?.description || '';
-        await updateDoc(bookDocRef, { description: `${existingDesc}\n\nCover generation failed: ${errorMessage}` });
     }
 }
 
