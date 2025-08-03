@@ -2,7 +2,6 @@
 
 import * as React from 'react';
 import { Book } from '@/lib/types';
-import { mockBooks } from '@/lib/mock-data';
 
 interface BookLibraryContextType {
   books: Book[];
@@ -14,7 +13,7 @@ interface BookLibraryContextType {
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
 
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
-  const [books, setBooks] = React.useState<Book[]>(mockBooks);
+  const [books, setBooks] = React.useState<Book[]>([]);
 
   const addBook = (book: Book) => {
     setBooks(prevBooks => [book, ...prevBooks]);
