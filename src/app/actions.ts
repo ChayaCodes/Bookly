@@ -29,6 +29,7 @@ export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Pro
 
     try {
         await uploadString(storageRef, fileDataUrl, 'data_url');
+        console.log("Upload successful for:", storagePath);
         return { storagePath: storagePath, error: null };
     } catch (e: any) {
         console.error("Server-side upload failed:", e);
@@ -36,7 +37,7 @@ export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Pro
             return { storagePath: null, error: "Upload failed: Permission denied. Your Firebase Storage security rules may not allow unauthenticated writes." };
         }
         if (e.code === 'storage/unknown') {
-            return { storagePath: null, error: 'An unknown storage error occurred. This might be due to incorrect Firebase Storage setup or rules.' };
+            return { storagePath: null, error: 'An unknown storage error occurred. This might be due to incorrect Firebase Storage setup or rules. Please ensure your rules allow unauthenticated writes if you do not have a login system.' };
         }
         return { storagePath: null, error: e.message || "An unknown error occurred during file upload." };
     }
@@ -83,10 +84,13 @@ export async function generateMetadataAction(input: {bookId: string, storagePath
     // 1. Generate Metadata
     const bookText = await getTextContentFromStorage(input.storagePath);
     const metadata = await generateBookMetadata({ bookText: bookText.slice(0, 15000) });
+    console.log(`Generated metadata for ${input.bookId}:`, metadata);
+
 
     // 2. Update Firestore with new metadata
     const updatePayload: Partial<Book> = { ...metadata, description: metadata.description || 'No description generated.' };
     await updateDoc(bookDocRef, updatePayload);
+    console.log(`Updated Firestore for ${input.bookId} with metadata.`);
 
     // 3. Generate Cover Image (asynchronously, don't wait for it)
     generateBookCover({
@@ -95,9 +99,15 @@ export async function generateMetadataAction(input: {bookId: string, storagePath
         'data-ai-hint': metadata['data-ai-hint'],
     }).then(async (coverResult) => {
         if (coverResult.coverImage) {
-            await updateDoc(bookDocRef, { coverImage: coverResult.coverImage });
+            // coverImage is a data URI, upload it to storage
+            const coverImageRef = ref(storage, `covers/${input.bookId}.png`);
+            await uploadString(coverImageRef, coverResult.coverImage, 'data_url');
+            const downloadURL = await getDownloadURL(coverImageRef);
+
+            await updateDoc(bookDocRef, { coverImage: downloadURL });
+            console.log(`Updated Firestore for ${input.bookId} with cover image URL: ${downloadURL}`);
         }
-    }).catch(e => console.error("Cover generation failed in background:", e));
+    }).catch(e => console.error("Cover generation and upload failed in background:", e));
 
 
     return { data: metadata, error: null };

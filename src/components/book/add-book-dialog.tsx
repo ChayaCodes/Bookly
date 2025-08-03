@@ -96,6 +96,8 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           storagePath: storagePath,
         };
         await addBook({ ...initialBook, id: bookId });
+        console.log(`Added initial book document to Firestore for ${bookId}:`, { ...initialBook, id: bookId });
+
         
         toast({
           title: 'Upload Complete!',
