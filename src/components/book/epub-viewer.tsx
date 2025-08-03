@@ -2,9 +2,8 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useImperativeHandle, forwardRef } from 'react';
-import ePub, { type Book, type Rendition } from 'epubjs';
+import ePub, { type Rendition } from 'epubjs';
 import { Loader2 } from 'lucide-react';
-import { useTheme } from 'next-themes';
 
 interface EpubViewerProps {
     fileContent: ArrayBuffer;
@@ -19,39 +18,19 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
     const viewerRef = useRef<HTMLDivElement>(null);
     const renditionRef = useRef<Rendition | null>(null);
     const [isLoading, setIsLoading] = useState(true);
-    const { theme } = useTheme();
 
     useEffect(() => {
         if (viewerRef.current && fileContent) {
-            setIsLoading(true);
             const book = ePub(fileContent);
-            
             const rendition = book.renderTo(viewerRef.current, {
                 width: '100%',
                 height: '100%',
                 flow: 'paginated',
-                manager: "default"
             });
             renditionRef.current = rendition;
 
-            const setRenditionTheme = (currentTheme: string | undefined) => {
-                if (!renditionRef.current) return;
-                const newTheme = {
-                    body: { 
-                        'background': currentTheme === 'dark' ? '#111827' : '#FFFFFF',
-                        'color': currentTheme === 'dark' ? '#E5E7EB' : '#1F2937',
-                        'font-family': '"PT Sans", sans-serif',
-                        'font-size': '18px', // Set default font size
-                        'line-height': '1.6'
-                    }
-                };
-                renditionRef.current.themes.register('custom', newTheme);
-                renditionRef.current.themes.select('custom');
-            }
-
             rendition.display().then(() => {
                 setIsLoading(false);
-                setRenditionTheme(theme);
             });
 
             return () => {
@@ -59,26 +38,6 @@ export const EpubViewer = forwardRef<EpubViewerRef, EpubViewerProps>(({ fileCont
             };
         }
     }, [fileContent]);
-
-     useEffect(() => {
-        if (renditionRef.current) {
-             const setRenditionTheme = (currentTheme: string | undefined) => {
-                if (!renditionRef.current) return;
-                const newTheme = {
-                    body: { 
-                        'background': currentTheme === 'dark' ? '#111827' : '#FFFFFF',
-                        'color': currentTheme === 'dark' ? '#E5E7EB' : '#1F2937',
-                        'font-family': '"PT Sans", sans-serif',
-                        'font-size': '18px',
-                        'line-height': '1.6'
-                    }
-                };
-                renditionRef.current.themes.register('custom', newTheme);
-                renditionRef.current.themes.select('custom');
-            }
-            setRenditionTheme(theme);
-        }
-    }, [theme]);
 
     useImperativeHandle(ref, () => ({
         nextPage: () => {
