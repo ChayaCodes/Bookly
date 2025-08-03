@@ -6,9 +6,38 @@ import { generateAudiobook, GenerateAudiobookInput, GenerateAudiobookOutput } fr
 import { generateBookCover, GenerateBookCoverInput } from '@/ai/flows/generate-book-cover';
 import { z } from 'zod';
 import { db, storage } from '@/lib/firebase';
-import { ref, getBlob } from 'firebase/storage';
+import { ref, getBlob, uploadString, getDownloadURL } from 'firebase/storage';
 import { doc, updateDoc, getDoc } from 'firebase/firestore';
 import type { Book } from '@/lib/types';
+
+
+const uploadSchema = z.object({
+  bookId: z.string(),
+  fileName: z.string(),
+  fileDataUrl: z.string(),
+});
+
+export async function uploadBookAction(input: z.infer<typeof uploadSchema>): Promise<{ storagePath: string | null, error: string | null }> {
+    const validation = uploadSchema.safeParse(input);
+    if (!validation.success) {
+        return { storagePath: null, error: validation.error.errors.map(e => e.message).join(', ') };
+    }
+    
+    const { bookId, fileName, fileDataUrl } = validation.data;
+    const storagePath = `books/${bookId}-${fileName}`;
+    const storageRef = ref(storage, storagePath);
+
+    try {
+        await uploadString(storageRef, fileDataUrl, 'data_url');
+        return { storagePath: storagePath, error: null };
+    } catch (e: any) {
+        console.error("Server-side upload failed:", e);
+        // This is where a CORS error would likely manifest if the bucket isn't configured,
+        // but now it's a server-to-server request.
+        return { storagePath: null, error: e.message || "Failed to upload file to storage." };
+    }
+}
+
 
 const metadataSchema = z.object({
   bookId: z.string().min(1, "Book ID is required."),
