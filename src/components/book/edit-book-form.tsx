@@ -254,8 +254,16 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
                 Cancel
              </Button>
              <Button type="submit" disabled={isSaving}>
-                {isSaving ? <><Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                {isSaving ? 'Saving...' : isNewBook ? 'Save and Add to Library' : 'Save Changes'}
+                {isSaving ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Saving...
+                  </>
+                ) : isNewBook ? (
+                  'Save and Add to Library'
+                ) : (
+                  'Save Changes'
+                )}
              </Button>
         </div>
       </form>
