@@ -206,6 +206,7 @@ export function Reader() {
                             onNextPageClick={handleNextPage}
                             onFullscreenClick={toggleFullscreen}
                             isFullscreen={isFullscreen}
+                            currentChapter={currentChapter}
                         />
                    </>
                 )}

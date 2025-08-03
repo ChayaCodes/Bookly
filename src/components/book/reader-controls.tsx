@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from '../ui/scroll-area';
+import { cn } from '@/lib/utils';
 
 interface ReaderControlsProps {
     title?: string;
@@ -28,6 +29,7 @@ interface ReaderControlsProps {
     onNextPageClick: () => void;
     onFullscreenClick: () => void;
     isFullscreen: boolean;
+    currentChapter: NavItem | null;
 }
 
 export function ReaderControls({
@@ -44,6 +46,7 @@ export function ReaderControls({
     onNextPageClick,
     onFullscreenClick,
     isFullscreen,
+    currentChapter,
 }: ReaderControlsProps) {
 
     const NextPageButton = () => (
@@ -105,7 +108,11 @@ export function ReaderControls({
                     <DropdownMenuContent className="bg-background" align="center">
                         <ScrollArea className="h-72 w-56">
                         {toc.map((item, index) => (
-                            <DropdownMenuItem key={index} onSelect={() => onTocSelect(item.href)}>
+                            <DropdownMenuItem 
+                                key={index} 
+                                onSelect={() => onTocSelect(item.href)}
+                                className={cn(currentChapter?.id === item.id && "bg-accent")}
+                            >
                                 {item.label.trim()}
                             </DropdownMenuItem>
                         ))}
