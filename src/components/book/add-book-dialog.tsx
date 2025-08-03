@@ -42,6 +42,15 @@ const fileToDataURL = (file: File): Promise<string> => {
     });
 };
 
+// Heuristic to determine file type
+const getBookType = (file: File): 'epub' | 'pdf' | 'text' => {
+    if (file.type === 'application/epub+zip') return 'epub';
+    if (file.type === 'application/pdf') return 'pdf';
+    // Default to text for others like .txt, .md
+    return 'text';
+}
+
+
 const FormSchema = z.object({
   file: z.instanceof(File, { message: "Please upload a file." })
     .refine(file => file.size > 0, "File cannot be empty."),
@@ -65,18 +74,19 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     
     try {
       const fileDataUrl = await fileToDataURL(file);
-      const fileType = file.type;
       const fileName = file.name.replace(/\.[^/.]+$/, "");
+      const bookType = getBookType(file);
       
       let pendingBook: PendingBook = {
         file,
         fileDataUrl,
+        type: bookType,
         metadata: { title: fileName } // Default title
       };
       
       let textContentForAI = '';
 
-      if (fileType === 'application/epub+zip') {
+      if (bookType === 'epub') {
           const arrayBuffer = await fileToArrayBuffer(file);
           const book = ePub(arrayBuffer);
           const metadata = await book.loaded.metadata;
@@ -90,7 +100,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             pendingBook.coverPreviewUrl = await fileToDataURL(new File([coverBlob], 'cover.png', {type: coverBlob.type}));
           }
 
-      } else if (fileType === 'application/pdf') {
+      } else if (bookType === 'pdf') {
           const arrayBuffer = await fileToArrayBuffer(file);
           const pdf = await pdfjsLib.getDocument({data: arrayBuffer}).promise;
           const page = await pdf.getPage(1);
@@ -225,5 +235,3 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
     </Dialog>
   );
 }
-
-    

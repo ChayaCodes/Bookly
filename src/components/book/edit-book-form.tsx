@@ -108,6 +108,7 @@ export function EditBookForm({ book, isNewBook }: EditBookFormProps) {
                 fileDataUrl: pendingBook.fileDataUrl,
                 fileName: pendingBook.file.name,
                 coverDataUrl: coverDataUrl,
+                type: pendingBook.type
             });
 
             if (result.error) {
