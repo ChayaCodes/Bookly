@@ -62,6 +62,18 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const getFileExtension = (filename: string) => {
     return filename.split('.').pop()?.toLowerCase();
   }
+  
+  const saveBookContent = (id: string, content: string) => {
+    try {
+        const stored = window.localStorage.getItem('books_content') || '[]';
+        const contents = JSON.parse(stored);
+        contents.push({ id, content });
+        window.localStorage.setItem('books_content', JSON.stringify(contents));
+    } catch(e) {
+        console.error("Failed to save book content to localStorage", e);
+    }
+  }
+
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     startTransition(async () => {
@@ -81,7 +93,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           coverImage: coverImageUrl,
           'data-ai-hint': 'book cover',
           language: 'English',
-          content: '',
+          content: '', // Content will be handled separately
           readingProgress: 0,
         };
 
@@ -147,8 +159,11 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             }
         }
         
-        initialBook.content = bookTextContent;
+        // Don't store content directly on the book object in main library state
+        // initialBook.content = bookTextContent; 
         addBook(initialBook);
+        saveBookContent(bookId, bookTextContent);
+
 
         toast({
           title: 'Book Added!',
@@ -169,7 +184,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
 
                     // Create a payload with only the new non-empty data from AI
                     const updatePayload: Partial<Book> = {};
-                    const isTitleDefault = currentBook.title.includes('.') || /untitled/i.test(currentBook.title) || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
+                    const isTitleDefault = /untitled/i.test(currentBook.title) || currentBook.title === file.name.replace(/\.[^/.]+$/, "");
                     const isAuthorDefault = /unknown/i.test(currentBook.author);
                     const isDescriptionDefault = !currentBook.description || /impossible/i.test(currentBook.description);
 

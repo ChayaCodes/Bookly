@@ -14,30 +14,35 @@ interface BookLibraryContextType {
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
 
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
-  const [books, setBooks] = React.useState<Book[]>(() => {
-    // This function now runs only on the client, preventing SSR issues.
-    if (typeof window === 'undefined') {
-      return [];
-    }
+  const [books, setBooks] = React.useState<Book[]>([]);
+  const [isLoaded, setIsLoaded] = React.useState(false);
+
+  // Load from localStorage only on the client, after initial render
+  React.useEffect(() => {
     try {
       const storedBooks = window.localStorage.getItem('books');
-      return storedBooks ? JSON.parse(storedBooks) : [];
+      if (storedBooks) {
+        setBooks(JSON.parse(storedBooks));
+      }
     } catch (error) {
       console.error("Error reading books from localStorage", error);
-      return [];
     }
-  });
+    setIsLoaded(true);
+  }, []);
   
   // This effect runs whenever the `books` state changes, saving it to localStorage.
   React.useEffect(() => {
-    try {
-        // Exclude file content from being stored in localStorage to avoid size issues
-        const booksToStore = books.map(({ content, ...book }) => book);
-        window.localStorage.setItem('books', JSON.stringify(booksToStore));
-    } catch (error) {
-        console.error("Error saving books to localStorage", error);
+    // Only save to localStorage after the initial load to prevent overwriting
+    if (isLoaded) {
+        try {
+            // Exclude file content from being stored in localStorage to avoid size issues
+            const booksToStore = books.map(({ content, ...book }) => book);
+            window.localStorage.setItem('books', JSON.stringify(booksToStore));
+        } catch (error) {
+            console.error("Error saving books to localStorage", error);
+        }
     }
-  }, [books]);
+  }, [books, isLoaded]);
 
 
   const addBook = (book: Book) => {
@@ -57,21 +62,32 @@ export function BookLibraryProvider({ children }: { children: React.ReactNode })
   };
   
   const findBookById = (id: string) => {
+    // First, try to find the book in the current state.
     const bookFromState = books.find(book => book.id === id);
-    if (bookFromState) return bookFromState;
-    
-    // As a fallback, try to find the book in localStorage if it is not in the state.
-    // This can happen if the book content is not loaded in the initial state.
-    try {
-        if (typeof window !== 'undefined') {
-            const storedBooks = window.localStorage.getItem('books');
-            const allBooks = storedBooks ? JSON.parse(storedBooks) : [];
-            return allBooks.find((b: Book) => b.id === id);
-        }
-    } catch(e) {
-        console.error("Failed to read from localstorage", e);
+    if (bookFromState?.content) {
+        return bookFromState;
     }
-    return undefined;
+
+    // If not found or content is missing, check localStorage directly.
+    // This handles cases where state might not have the full book object yet.
+     if (typeof window !== 'undefined') {
+        try {
+            const storedBooksRaw = window.localStorage.getItem('books_content');
+            if (storedBooksRaw) {
+                const storedBooksContent = JSON.parse(storedBooksRaw);
+                const bookWithContent = storedBooksContent.find((b: {id: string}) => b.id === id);
+
+                if (bookWithContent) {
+                   const libraryBooks = JSON.parse(window.localStorage.getItem('books') || '[]');
+                   const bookInfo = libraryBooks.find((b:Book) => b.id === id);
+                   return {...bookInfo, content: bookWithContent.content };
+                }
+            }
+        } catch(e) {
+            console.error("Failed to read book content from localstorage", e);
+        }
+    }
+    return bookFromState;
   };
 
   const value = { books, addBook, updateBook, deleteBook, findBookById };

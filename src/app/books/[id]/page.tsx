@@ -28,10 +28,9 @@ import {
 export default function BookDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { findBookById, deleteBook } = useBookLibrary();
+  const { findBookById, deleteBook, updateBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
-  const [summary, setSummary] = useState<string | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -39,9 +38,6 @@ export default function BookDetailsPage() {
       const foundBook = findBookById(params.id as string);
       if (foundBook) {
         setBook(foundBook);
-        if (foundBook.summary) {
-          setSummary(foundBook.summary);
-        }
       } else {
         // Handle book not found, maybe redirect
         router.push('/');
@@ -50,7 +46,7 @@ export default function BookDetailsPage() {
   }, [params.id, findBookById, router]);
 
   const handleGenerateSummary = () => {
-    if (!book) return;
+    if (!book || !book.content) return;
     startSummaryTransition(async () => {
       const result = await summarizeContentAction({ bookContent: book.content });
       if (result.error) {
@@ -59,9 +55,10 @@ export default function BookDetailsPage() {
           title: 'Error',
           description: result.error,
         });
-      } else if (result.data) {
-        setSummary(result.data.summary);
-        // Optionally update the book in the global state
+      } else if (result.data?.summary) {
+        const updatedBook = { ...book, summary: result.data.summary };
+        setBook(updatedBook);
+        updateBook({id: book.id, summary: result.data.summary});
       }
     });
   };
@@ -175,12 +172,12 @@ export default function BookDetailsPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {summary ? (
-                  <p className="text-muted-foreground">{summary}</p>
+                {book.summary ? (
+                  <p className="text-muted-foreground">{book.summary}</p>
                 ) : (
                   <div className="flex flex-col items-center justify-center text-center space-y-3 p-4 border border-dashed rounded-lg">
                     <p>No summary available for this book yet.</p>
-                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading}>
+                    <Button onClick={handleGenerateSummary} disabled={isSummaryLoading || !book.content}>
                       {isSummaryLoading ? (
                         <>
                           <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -190,6 +187,7 @@ export default function BookDetailsPage() {
                         'Generate Summary'
                       )}
                     </Button>
+                     {!book.content && <p className="text-xs text-muted-foreground">Summary generation requires book content.</p>}
                   </div>
                 )}
               </CardContent>
