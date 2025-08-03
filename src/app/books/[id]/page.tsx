@@ -176,7 +176,7 @@ export default function BookDetailsPage() {
                         <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete the book
                             "{book.title}" from your library.
-                        </-AlertDialogDescription>
+                        </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
                         <AlertDialogCancel>Cancel</AlertDialogCancel>
