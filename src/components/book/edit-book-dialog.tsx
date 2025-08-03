@@ -62,31 +62,41 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
   });
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
-    let coverImageData = book.coverImage;
-    if (data.coverImage && data.coverImage instanceof File) {
-        coverImageData = await fileToDataURL(data.coverImage);
-    } else {
-        coverImageData = coverPreview; // Ensure preview is saved if no new file
-    }
-    
-    const updatedBook: Partial<Book> & {id: string} = {
-      id: book.id,
-      title: data.title,
-      author: data.author,
-      description: data.description || '',
-      tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
-      coverImage: coverImageData || '',
-    };
-    updateBook(updatedBook);
-    toast({
-      title: 'Book Updated',
-      description: `"${book.title}" has been successfully updated.`,
-    });
-    
-    if (isPage) {
-        router.push(`/books/${book.id}`);
-    } else {
-        setIsOpen(false);
+    try {
+        let coverImageData = book.coverImage;
+        if (data.coverImage && data.coverImage instanceof File) {
+            coverImageData = await fileToDataURL(data.coverImage);
+        } else {
+            coverImageData = coverPreview; // Ensure preview is saved if no new file
+        }
+        
+        const updatedBook: Partial<Book> & {id: string} = {
+          id: book.id,
+          title: data.title,
+          author: data.author,
+          description: data.description || '',
+          tags: data.tags ? data.tags.split(',').map(tag => tag.trim()).filter(t => t) : [],
+          coverImage: coverImageData || '',
+        };
+
+        await updateBook(updatedBook);
+        
+        toast({
+          title: 'Book Updated',
+          description: `"${book.title}" has been successfully updated.`,
+        });
+        
+        if (isPage) {
+            router.push(`/books/${book.id}`);
+        } else {
+            setIsOpen(false);
+        }
+    } catch (e: any) {
+        toast({
+            variant: 'destructive',
+            title: 'Update Failed',
+            description: `Could not update book: ${e.message}`
+        });
     }
   }
 
@@ -105,17 +115,17 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
     const file = e.target.files?.[0];
     if (file) {
       form.setValue('coverImage', file, { shouldValidate: true });
-      const previewUrl = URL.createObjectURL(file);
-      setCoverPreview(previewUrl);
-
-      // Clean up the object URL after the component unmounts
-      return () => URL.revokeObjectURL(previewUrl);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setCoverPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
   
   const handleDialogChange = (open: boolean) => {
     if (isPage) {
-        // if it's a page, redirect to library on close
+        // if it's a page, redirect back to book details on close
         if (!open) router.push(`/books/${book.id}`);
     } else {
         setIsOpen(open);
@@ -137,7 +147,7 @@ export function EditBookDialog({ book, children, isPage = false }: EditBookDialo
                        <CardContent className="p-2">
                            {coverPreview ? (
                             <div className="relative aspect-[2/3] w-full">
-                               <Image src={coverPreview} alt="Cover preview" layout="fill" objectFit="cover" className="rounded-md" />
+                               <Image src={coverPreview} alt="Cover preview" fill objectFit="cover" className="rounded-md" />
                             </div>
                            ) : (
                             <div className="relative aspect-[2/3] w-full bg-muted rounded-md flex items-center justify-center">
