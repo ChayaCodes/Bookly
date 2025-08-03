@@ -48,21 +48,24 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   async function onSubmit(data: z.infer<typeof FormSchema>) {
     const file = data.file;
     const bookId = uuidv4();
+    let initialBookTitle = file.name.replace(/\.[^/.]+$/, ""); // Filename w/o extension
+
 
     startTransition(async () => {
       try {
+        // Step 1: UI feedback for starting
         toast({
-          title: 'Reading File...',
-          description: `Preparing "${file.name}" for upload.`,
+          title: 'Preparing File...',
+          description: `Reading "${file.name}".`,
         });
 
+        // Step 2: Convert file and upload to a temporary location
         const fileDataUrl = await fileToDataURL(file);
 
         toast({
-          title: 'Starting Upload...',
-          description: `Please wait while the file is being uploaded.`,
+          title: 'Uploading...',
+          description: `Please wait while "${file.name}" is being uploaded.`,
         });
-
         const uploadResult = await uploadBookAction({
             bookId: bookId,
             fileName: file.name,
@@ -77,12 +80,12 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
              });
              return;
         }
-
         const storagePath = uploadResult.storagePath;
 
+        // Step 3: Create an initial book record in Firestore
         let initialBook: Omit<Book, 'id'|'createdAt'> = {
           type: 'text',
-          title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
+          title: initialBookTitle,
           author: 'Unknown',
           description: 'Processing for metadata...',
           tags: [],
@@ -92,36 +95,37 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           readingProgress: 0,
           storagePath: storagePath,
         };
-        
-        // Add the book to the library and wait for it to complete.
         await addBook({ ...initialBook, id: bookId });
         
         toast({
           title: 'Upload Complete!',
-          description: `"${initialBook.title}" is now being processed by AI.`,
+          description: `Now processing "${initialBook.title}" with AI.`,
         });
         
-        // Reset the form and close the dialog
+        // Reset form and close dialog now that upload is done
         form.reset();
         setIsOpen(false);
         
-        // Start metadata generation in the background
-        generateMetadataAction({ bookId: bookId, storagePath: storagePath })
-          .then(result => {
-             if (result.error) {
-                 toast({
-                     variant: 'destructive',
-                     title: 'AI Processing Failed',
-                     description: result.error,
-                 });
-                 updateBook({ id: bookId, description: `AI processing failed. ${result.error}`})
-             } else {
-                  toast({
-                      title: 'AI Update Complete',
-                      description: `"${result.data?.title || initialBook.title}" has been enhanced.`,
-                  });
-             }
-          });
+        // Step 4: Generate metadata and update the UI
+        const metadataResult = await generateMetadataAction({ bookId: bookId, storagePath: storagePath });
+
+        if (metadataResult.error || !metadataResult.data) {
+             toast({
+                 variant: 'destructive',
+                 title: 'AI Processing Failed',
+                 description: metadataResult.error,
+             });
+             // Update the book with an error state
+             await updateBook({ id: bookId, description: `AI processing failed. ${metadataResult.error}`});
+        } else {
+              // On success, update the book in the UI with the new data.
+              // Cover image will be updated in the background.
+              await updateBook({id: bookId, ...metadataResult.data});
+              toast({
+                  title: 'AI Update Complete',
+                  description: `"${metadataResult.data.title}" has been enhanced.`,
+              });
+        }
 
       } catch (error) {
         console.error("Error in upload process:", error);
@@ -223,7 +227,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Uploading...
+                    Processing...
                   </>
                 ) : (
                   'Upload Book'
