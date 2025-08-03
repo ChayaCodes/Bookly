@@ -46,10 +46,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   });
 
   async function onSubmit(data: z.infer<typeof FormSchema>) {
+    const file = data.file;
+    const bookId = uuidv4();
+
     startTransition(async () => {
-      const file = data.file;
-      const bookId = uuidv4();
-      
       try {
         toast({
           title: 'Reading File...',
@@ -92,17 +92,20 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           readingProgress: 0,
           storagePath: storagePath,
         };
-
+        
+        // Add the book to the library and wait for it to complete.
         await addBook({ ...initialBook, id: bookId });
         
         toast({
           title: 'Upload Complete!',
           description: `"${initialBook.title}" is now being processed by AI.`,
         });
-
+        
+        // Reset the form and close the dialog
         form.reset();
         setIsOpen(false);
         
+        // Start metadata generation in the background
         generateMetadataAction({ bookId: bookId, storagePath: storagePath })
           .then(result => {
              if (result.error) {
