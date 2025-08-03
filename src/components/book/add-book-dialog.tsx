@@ -43,9 +43,11 @@ const fileToDataURL = (file: File): Promise<string> => {
 };
 
 // Heuristic to determine file type
-const getBookType = (file: File): 'epub' | 'pdf' | 'text' => {
-    if (file.type === 'application/epub+zip') return 'epub';
-    if (file.type === 'application/pdf') return 'pdf';
+const getBookType = (file: File): 'epub' | 'pdf' | 'text' | 'audio' => {
+    const fileName = file.name.toLowerCase();
+    if (file.type === 'application/epub+zip' || fileName.endsWith('.epub')) return 'epub';
+    if (file.type === 'application/pdf' || fileName.endsWith('.pdf')) return 'pdf';
+    if (file.type === 'application/zip' || fileName.endsWith('.zip')) return 'audio';
     // Default to text for others like .txt, .md
     return 'text';
 }
@@ -117,6 +119,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           const firstPageText = await page.getTextContent();
           textContentForAI = firstPageText.items.map(item => (item as any).str).join(' ');
 
+      } else if (bookType === 'audio') {
+          pendingBook.metadata.title = fileName;
+          pendingBook.metadata.author = 'Unknown';
       } else { // TXT, MD, etc.
           textContentForAI = await file.text();
           pendingBook.metadata.title = fileName;
@@ -188,7 +193,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             Add New Book
           </DialogTitle>
           <DialogDescription>
-            Upload a book file (EPUB, PDF, TXT). We'll analyze it before adding to your library.
+            Upload a book file (EPUB, PDF, TXT, ZIP for audio). We'll analyze it before adding to your library.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -209,7 +214,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                     >
                       <UploadCloud className="w-10 h-10 text-muted-foreground mb-2"/>
                       <p className="mb-2 text-sm text-muted-foreground"><span className="font-semibold">Click to upload</span> or drag and drop</p>
-                      <p className="text-xs text-muted-foreground">EPUB, PDF, TXT, etc.</p>
+                      <p className="text-xs text-muted-foreground">EPUB, PDF, TXT, ZIP</p>
                       <Input
                         type="file"
                         className="absolute w-full h-full opacity-0 cursor-pointer"
