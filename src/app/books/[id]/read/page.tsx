@@ -65,6 +65,7 @@ export default function BookReaderPage() {
 
         switch(book.type) {
             case 'epub':
+            case 'text':
                 return (
                     <div className="relative w-full h-full flex-1 flex items-center justify-center">
                         <EpubViewer ref={epubViewerRef} fileContent={fileContent} />
@@ -76,8 +77,6 @@ export default function BookReaderPage() {
                         </Button>
                     </div>
                 );
-            case 'text':
-                 return <TextViewer fileContent={fileContent} />;
             case 'pdf':
                 return <div className="text-center p-8">PDF viewer is not implemented yet.</div>;
             default:
