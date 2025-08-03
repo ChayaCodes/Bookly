@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
-import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, Text, FileText } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
@@ -23,29 +23,41 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+} from "@/components/ui/alert-dialog";
+import { storage } from '@/lib/firebase';
+import { ref, getDownloadURL, uploadString } from 'firebase/storage';
 
 export default function BookDetailsPage() {
   const router = useRouter();
   const params = useParams();
-  const { findBookById, deleteBook, updateBook, books } = useBookLibrary();
+  const { findBookById, deleteBook, updateBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
   const [isConverting, startConversionTransition] = useTransition();
+  const [audioChapters, setAudioChapters] = useState<{title: string, audioDataUri: string}[]>([]);
   const { toast } = useToast();
 
   useEffect(() => {
     if (params.id) {
-      const foundBook = findBookById(params.id as string);
-      setBook(foundBook || null);
+      findBookById(params.id as string).then(foundBook => {
+          setBook(foundBook || null);
+          if (foundBook?.audioStoragePath) {
+              const audioRef = ref(storage, foundBook.audioStoragePath);
+              getDownloadURL(audioRef).then(url => {
+                  fetch(url).then(res => res.json()).then(data => {
+                      setAudioChapters(data.chapters);
+                  })
+              })
+          }
+      });
     }
-  }, [params.id, findBookById, books]); 
+  }, [params.id, findBookById]); 
 
 
   const handleGenerateSummary = () => {
-    if (!book || !book.content) return;
+    if (!book?.storagePath) return;
     startSummaryTransition(async () => {
-      const result = await summarizeContentAction({ bookContent: book.content as string });
+      const result = await summarizeContentAction({ storagePath: book.storagePath as string });
       if (result.error) {
         toast({
           variant: 'destructive',
@@ -53,26 +65,31 @@ export default function BookDetailsPage() {
           description: result.error,
         });
       } else if (result.data?.summary) {
-        const updatedBook = { ...book, summary: result.data.summary };
-        updateBook({id: book.id, summary: result.data.summary});
-        setBook(updatedBook);
+        await updateBook({id: book.id, summary: result.data.summary});
+        setBook(prev => prev ? {...prev, summary: result.data!.summary} : null);
       }
     });
   };
 
   const handleCreateAudiobook = () => {
-    if (!book || !book.content) {
+    if (!book || !book.storagePath) {
         toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without book content."});
         return;
     }
     startConversionTransition(async () => {
-        const result = await generateAudiobookAction({ bookContent: book.content as string });
+        const result = await generateAudiobookAction({ storagePath: book.storagePath as string });
         if (result.error) {
             toast({ variant: 'destructive', title: 'Audiobook Creation Failed', description: result.error });
         } else if (result.data) {
-            const updatedBookData = { audioChapters: result.data.chapters, type: 'audio' as const };
-            updateBook({id: book.id, ...updatedBookData});
+            const audioJson = JSON.stringify({ chapters: result.data.chapters });
+            const audioStoragePath = `audiobooks/${book.id}.json`;
+            const audioRef = ref(storage, audioStoragePath);
+            await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
+
+            const updatedBookData = { audioStoragePath: audioStoragePath, type: 'audio' as const };
+            await updateBook({id: book.id, ...updatedBookData});
             setBook(prevBook => prevBook ? {...prevBook, ...updatedBookData} : null);
+            setAudioChapters(result.data.chapters);
             toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated.' });
         }
     });
@@ -85,14 +102,22 @@ export default function BookDetailsPage() {
     });
   }
   
-  const handleDeleteBook = () => {
+  const handleDeleteBook = async () => {
     if (!book) return;
-    deleteBook(book.id);
-    toast({
-        title: "Book Deleted",
-        description: `"${book.title}" has been removed from your library.`
-    })
-    router.push('/');
+    try {
+        await deleteBook(book.id);
+        toast({
+            title: "Book Deleted",
+            description: `"${book.title}" has been removed from your library.`
+        })
+        router.push('/');
+    } catch (error) {
+         toast({
+            variant: 'destructive',
+            title: "Deletion Failed",
+            description: `Could not delete "${book.title}". Please try again.`
+        })
+    }
   }
 
   if (!book) {
@@ -103,8 +128,8 @@ export default function BookDetailsPage() {
     );
   }
   
-  const hasAudio = book.audioChapters && book.audioChapters.length > 0;
-  const hasContent = !!book.content;
+  const hasAudio = !!book.audioStoragePath;
+  const hasContent = !!book.storagePath;
 
   return (
     <div className="min-h-screen bg-background">
@@ -143,7 +168,7 @@ export default function BookDetailsPage() {
                     </Button>
                 )}
                 
-                {book.type === 'text' && !hasAudio && hasContent && (
+                {!hasAudio && hasContent && (
                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
                         {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
                         {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
@@ -176,7 +201,7 @@ export default function BookDetailsPage() {
                         <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                         <AlertDialogDescription>
                             This action cannot be undone. This will permanently delete the book
-                            "{book.title}" from your library.
+                            "{book.title}" and its associated files from storage.
                         </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -235,7 +260,7 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
 
-            {hasAudio && book.audioChapters && (
+            {hasAudio && audioChapters.length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle className="font-headline flex items-center gap-2">
@@ -244,7 +269,7 @@ export default function BookDetailsPage() {
                         </CardTitle>
                     </CardHeader>
                     <CardContent className="space-y-2">
-                        {book.audioChapters.map((chapter, index) => (
+                        {audioChapters.map((chapter, index) => (
                             <div key={index} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
                                <p className="font-semibold flex-1">{chapter.title}</p>
                                <audio controls src={chapter.audioDataUri} className="w-full max-w-xs h-10" />

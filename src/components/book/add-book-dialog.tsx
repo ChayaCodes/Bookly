@@ -17,6 +17,9 @@ import ePub from 'epubjs';
 import { useRouter } from 'next/navigation';
 import type { Book } from '@/lib/types';
 import * as pdfjsLib from 'pdfjs-dist';
+import { storage } from '@/lib/firebase';
+import { ref, uploadBytes } from "firebase/storage";
+
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
 
@@ -41,7 +44,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
   const [isOpen, setIsOpen] = React.useState(false);
   const [isPending, startTransition] = React.useTransition();
   const [isDragging, setIsDragging] = React.useState(false);
-  const { addBook, updateBook, findBookById } = useBookLibrary();
+  const { addBook, updateBook } = useBookLibrary();
   const { toast } = useToast();
   const router = useRouter();
 
@@ -57,15 +60,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       reader.readAsArrayBuffer(file);
     });
   };
-
-  const readFileAsText = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsText(file);
-    });
-  };
   
   const getFileExtension = (filename: string) => {
     return filename.split('.').pop()?.toLowerCase();
@@ -76,12 +70,11 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
       try {
         const file = data.file;
         const extension = getFileExtension(file.name);
-        const bookId = crypto.randomUUID();
-        let bookTextContent = '';
-        let coverImageUrl = `https://placehold.co/300x450/9ca3da/2a2e45`;
         
-        let initialBook: Book = {
-          id: bookId,
+        let coverImageUrl = `https://placehold.co/400x600/9ca3da/2a2e45`;
+        let storagePath = `books/${crypto.randomUUID()}-${file.name}`;
+        
+        let initialBook: Omit<Book, 'id'|'createdAt'> = {
           type: 'text',
           title: file.name.replace(/\.[^/.]+$/, ""), // Filename w/o extension
           author: 'Unknown',
@@ -90,9 +83,16 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
           coverImage: coverImageUrl,
           'data-ai-hint': 'book cover',
           language: 'English',
-          content: '', // Content will be populated below
+          storagePath: storagePath,
           readingProgress: 0,
         };
+        
+        // Upload the original file to Firebase Storage
+        const storageRef = ref(storage, storagePath);
+        const uploadResult = await uploadBytes(storageRef, file);
+        storagePath = uploadResult.metadata.fullPath; // Get the final path
+        initialBook.storagePath = storagePath;
+
 
         const arrayBuffer = await readFileAsArrayBuffer(file);
 
@@ -108,25 +108,6 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 const coverImageBlob = await fetch(coverUrl).then(r => r.blob());
                 initialBook.coverImage = await blobToDataURL(coverImageBlob);
             }
-             
-            await book.ready;
-            const textContent = await book.spine.items.reduce(async (accPromise, item: any) => {
-                const acc = await accPromise;
-                if (!item.load) {
-                  console.warn('Skipping section, item.load is not a function', item);
-                  return acc;
-                }
-                try {
-                    const doc = await item.load(book.load.bind(book));
-                    const text = doc.body.innerText || "";
-                    return acc + text + "\n\n";
-                } catch(e) {
-                    console.warn(`Could not load section`, e);
-                    return acc;
-                }
-            }, Promise.resolve(""));
-            bookTextContent = textContent;
-
         } else if (extension === 'pdf') {
             const pdf = await pdfjsLib.getDocument(new Uint8Array(arrayBuffer)).promise;
             
@@ -142,26 +123,9 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 await page.render({ canvasContext: context, viewport: viewport }).promise;
                 initialBook.coverImage = canvas.toDataURL();
             }
-
-            // Extract text content
-            const textContents = [];
-            for (let i = 1; i <= pdf.numPages; i++) {
-                const page = await pdf.getPage(i);
-                const textContent = await page.getTextContent();
-                textContents.push(textContent.items.map(item => ('str' in item) ? item.str : '').join(' '));
-            }
-            bookTextContent = textContents.join('\n');
-            
-        } else {
-           try {
-                bookTextContent = await readFileAsText(file);
-            } catch (e) {
-                console.warn("Could not read file as text:", e);
-            }
         }
         
-        initialBook.content = bookTextContent;
-        addBook(initialBook);
+        await addBook(initialBook);
 
         toast({
           title: 'Book Added!',
@@ -171,49 +135,33 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
         form.reset();
         setIsOpen(false);
         
-        // Asynchronous AI Processing only if we have text content
-        const textForAi = bookTextContent.slice(0, 10000);
-        if (textForAi && textForAi.length >= 100) {
-            generateMetadataAction({ bookText: textForAi }).then(result => {
-                if (result.data) {
-                    const currentBook = findBookById(bookId);
-                    if (!currentBook) return;
+        // Asynchronous AI Processing
+        generateMetadataAction({ storagePath }).then(async (result) => {
+            if (result.data) {
+                const booksResponse = await fetch(`/api/books?path=${storagePath}`);
+                const books = await booksResponse.json();
+                if (books.length > 0) {
+                    const bookId = books[0].id;
 
                     const updatePayload: Partial<Book> = {};
-
-                    const isTitlePlaceholder = currentBook.title === file.name.replace(/\.[^/.]+$/, "") || /untitled/i.test(currentBook.title);
-                    if (result.data.title && isTitlePlaceholder) {
-                        updatePayload.title = result.data.title;
-                    }
-
-                    const isAuthorPlaceholder = /unknown/i.test(currentBook.author);
-                    if (result.data.author && isAuthorPlaceholder) {
-                        updatePayload.author = result.data.author;
-                    }
-                    
-                    const isDescriptionPlaceholder = !currentBook.description;
-                    if (result.data.description && isDescriptionPlaceholder) {
-                        updatePayload.description = result.data.description;
-                    }
-
-                    if (result.data.tags?.length > 0 && currentBook.tags.length === 0) {
-                        updatePayload.tags = result.data.tags;
-                    }
+                    if (result.data.title) updatePayload.title = result.data.title;
+                    if (result.data.author) updatePayload.author = result.data.author;
+                    if (result.data.description) updatePayload.description = result.data.description;
+                    if (result.data.tags?.length > 0) updatePayload.tags = result.data.tags;
 
                     if (Object.keys(updatePayload).length > 0) {
-                        updateBook({
-                            id: bookId,
-                            ...updatePayload,
-                        });
-                        toast({
-                            title: 'AI Update',
-                            description: `AI has finished processing "${updatePayload.title || currentBook.title}".`,
-                        });
+                       await updateBook({
+                           id: bookId,
+                           ...updatePayload,
+                       });
+                       toast({
+                           title: 'AI Update',
+                           description: `AI has finished processing "${updatePayload.title || initialBook.title}".`,
+                       });
                     }
                 }
-            });
-        }
-        router.push(`/books/edit/${bookId}`);
+            }
+        });
 
       } catch (error) {
         console.error("Error processing book:", error);
@@ -266,7 +214,7 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
             Add New Book
           </DialogTitle>
           <DialogDescription>
-            Upload a book file (EPUB, TXT, etc.). We'll try to extract its details automatically.
+            Upload a book file (EPUB, PDF, TXT). We'll store it in the cloud and extract its details.
           </DialogDescription>
         </DialogHeader>
         <Form {...form}>
@@ -315,10 +263,10 @@ export function AddBookDialog({ children }: { children: React.ReactNode }) {
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
+                    Uploading...
                   </>
                 ) : (
-                  'Process Book'
+                  'Upload Book'
                 )}
               </Button>
             </DialogFooter>

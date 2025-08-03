@@ -2,14 +2,27 @@
 
 import * as React from 'react';
 import type { Book } from '@/lib/types';
-import { useToast } from '@/hooks/use-toast';
+import { db, storage } from '@/lib/firebase';
+import {
+  collection,
+  query,
+  orderBy,
+  onSnapshot,
+  addDoc,
+  updateDoc,
+  deleteDoc,
+  doc,
+  getDoc,
+  writeBatch
+} from 'firebase/firestore';
+import { ref, deleteObject } from "firebase/storage";
 
 interface BookLibraryContextType {
   books: Book[];
-  addBook: (book: Book) => void;
-  updateBook: (updatedBook: Partial<Book> & { id: string }) => void;
-  deleteBook: (id: string) => void;
-  findBookById: (id: string) => Book | undefined;
+  addBook: (book: Omit<Book, 'id' | 'createdAt'>) => Promise<void>;
+  updateBook: (updatedBook: Partial<Book> & { id: string }) => Promise<void>;
+  deleteBook: (id: string) => Promise<void>;
+  findBookById: (id: string) => Promise<Book | undefined>;
 }
 
 export const BookLibraryContext = React.createContext<BookLibraryContextType | undefined>(undefined);
@@ -17,120 +30,68 @@ export const BookLibraryContext = React.createContext<BookLibraryContextType | u
 export function BookLibraryProvider({ children }: { children: React.ReactNode }) {
   const [books, setBooks] = React.useState<Book[]>([]);
   const [isLoaded, setIsLoaded] = React.useState(false);
-  const { toast } = useToast();
 
-  // Load from localStorage only on the client, after initial render
   React.useEffect(() => {
-    try {
-      const storedBooks = window.localStorage.getItem('books');
-      if (storedBooks) {
-        setBooks(JSON.parse(storedBooks));
-      }
-    } catch (error) {
-      console.error("Error reading books from localStorage", error);
-    }
-    setIsLoaded(true);
+    const q = query(collection(db, 'books'), orderBy('createdAt', 'desc'));
+
+    const unsubscribe = onSnapshot(q, (querySnapshot) => {
+      const booksData: Book[] = [];
+      querySnapshot.forEach((doc) => {
+        const data = doc.data();
+        booksData.push({
+          id: doc.id,
+          ...data,
+        } as Book);
+      });
+      setBooks(booksData);
+      setIsLoaded(true);
+    }, (error) => {
+      console.error("Error fetching books from Firestore:", error);
+    });
+
+    return () => unsubscribe();
   }, []);
   
-  // This effect runs whenever the `books` state changes, saving it to localStorage.
-  React.useEffect(() => {
-    if (isLoaded) {
-        try {
-            // The `books` state should NOT contain the `content` property.
-            window.localStorage.setItem('books', JSON.stringify(books));
-        } catch (error) {
-            console.error("Error saving books to localStorage", error);
-        }
-    }
-  }, [books, isLoaded]);
 
-  const saveBookContent = (id: string, content: string) => {
-    if (typeof window === 'undefined') return;
-    try {
-        const stored = window.localStorage.getItem('books_content') || '[]';
-        const contents = JSON.parse(stored);
-        // Avoid duplicates
-        const existingIndex = contents.findIndex((item: {id: string}) => item.id === id);
-        if (existingIndex > -1) {
-            contents[existingIndex] = { id, content };
-        } else {
-            contents.push({ id, content });
-        }
-        window.localStorage.setItem('books_content', JSON.stringify(contents));
-    } catch(e) {
-        console.error("Failed to save book content to localStorage", e);
-        toast({
-            variant: 'destructive',
-            title: 'Could not save book content',
-            description: 'The book content is too large to be saved in your browser. Some features might not work correctly.'
-        })
-    }
-  }
-
-  const addBook = (book: Book) => {
-    const { content, ...bookWithoutContent } = book;
-
-    if (content) {
-      saveBookContent(book.id, content);
-    }
-    
-    setBooks(prevBooks => [bookWithoutContent, ...prevBooks]);
+  const addBook = async (book: Omit<Book, 'id' | 'createdAt'>) => {
+     await addDoc(collection(db, 'books'), {
+        ...book,
+        createdAt: Date.now(),
+     });
   };
 
-  const updateBook = (updatedBook: Partial<Book> & { id: string }) => {
-    // If the update contains content, save it separately
-    if (updatedBook.content) {
-        saveBookContent(updatedBook.id, updatedBook.content);
-    }
-    
-    // Remove content from the object before updating the state
-    const { content, ...updateWithoutContent } = updatedBook;
-
-    setBooks(prevBooks =>
-      prevBooks.map(book => 
-        book.id === updateWithoutContent.id ? { ...book, ...updateWithoutContent } : book
-      )
-    );
+  const updateBook = async (updatedBook: Partial<Book> & { id: string }) => {
+    const { id, ...dataToUpdate } = updatedBook;
+    const bookDocRef = doc(db, 'books', id);
+    await updateDoc(bookDocRef, dataToUpdate);
   };
   
-  const deleteBook = (id: string) => {
-    setBooks(prevBooks => prevBooks.filter(book => book.id !== id));
-    // Also remove from content storage
-     if (typeof window !== 'undefined') {
-        try {
-            const stored = window.localStorage.getItem('books_content') || '[]';
-            const contents = JSON.parse(stored);
-            const newContents = contents.filter((item: {id: string}) => item.id !== id);
-            window.localStorage.setItem('books_content', JSON.stringify(newContents));
-        } catch (e) {
-            console.error("Failed to remove book content from localStorage", e);
-        }
+  const deleteBook = async (id: string) => {
+    const bookToDelete = books.find(b => b.id === id);
+    if (!bookToDelete) return;
+
+    // Delete Firestore document
+    await deleteDoc(doc(db, 'books', id));
+
+    // Delete files from Firebase Storage
+    if (bookToDelete.storagePath) {
+        const fileRef = ref(storage, bookToDelete.storagePath);
+        await deleteObject(fileRef).catch(e => console.error("Error deleting main file:", e));
+    }
+    if (bookToDelete.audioStoragePath) {
+        const audioFileRef = ref(storage, bookToDelete.audioStoragePath);
+        await deleteObject(audioFileRef).catch(e => console.error("Error deleting audio file:", e));
+    }
+  };
+  
+  const findBookById = async (id: string): Promise<Book | undefined> => {
+     const bookDocRef = doc(db, 'books', id);
+     const bookDoc = await getDoc(bookDocRef);
+
+     if (bookDoc.exists()) {
+        return { id: bookDoc.id, ...bookDoc.data() } as Book;
      }
-  };
-  
-  const findBookById = (id: string): Book | undefined => {
-    const bookFromState = books.find(book => book.id === id);
-
-    if (!bookFromState) return undefined;
-    
-    // Always check for content in localStorage and merge it
-    if (typeof window !== 'undefined') {
-      try {
-        const storedBooksRaw = window.localStorage.getItem('books_content');
-        if (storedBooksRaw) {
-            const storedBooksContent = JSON.parse(storedBooksRaw);
-            const bookWithContent = storedBooksContent.find((b: {id: string}) => b.id === id);
-
-            if (bookWithContent) {
-               return {...bookFromState, ...bookWithContent };
-            }
-        }
-      } catch(e) {
-        console.error("Failed to read book content from localstorage", e);
-      }
-    }
-    
-    return bookFromState;
+     return undefined;
   };
 
   const value = { books, addBook, updateBook, deleteBook, findBookById };
