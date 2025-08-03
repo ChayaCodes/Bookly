@@ -166,9 +166,11 @@ export default function BookDetailsPage() {
             </Card>
             <div className="space-y-2">
                 {hasContent && (
-                    <Button size="lg" className="w-full font-bold">
+                    <Button size="lg" className="w-full font-bold" asChild>
+                      <Link href={`/books/${book.id}/read`}>
                         <BookOpen className="mr-2 h-5 w-5" />
                         Read Now
+                      </Link>
                     </Button>
                 )}
                 {hasAudio && (

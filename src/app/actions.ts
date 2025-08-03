@@ -155,11 +155,7 @@ async function generateCoverWithAI(bookId: string, title: string, description: s
 
 // --- OTHER ACTIONS (summarize, create audiobook etc.) ---
 
-const summarySchema = z.object({
-  storagePath: z.string().min(1, "Storage path is required."),
-});
-
-async function getTextContentFromStorage(storagePath: string): Promise<string> {
+export async function getTextContentFromStorage(storagePath: string): Promise<string> {
     const fileRef = ref(storage, storagePath);
     try {
         const fileBuffer = await getBytes(fileRef);
@@ -180,6 +176,11 @@ async function getTextContentFromStorage(storagePath: string): Promise<string> {
         throw e;
     }
 }
+
+
+const summarySchema = z.object({
+  storagePath: z.string().min(1, "Storage path is required."),
+});
 
 
 export async function summarizeContentAction(input: {storagePath: string}) {
