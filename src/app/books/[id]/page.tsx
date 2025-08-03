@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import Link from 'next/link';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
@@ -10,7 +11,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { EditBookDialog } from '@/components/book/edit-book-dialog';
 import { summarizeContentAction, generateAudiobookAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import {
@@ -154,13 +154,13 @@ export default function BookDetailsPage() {
             <Card className="overflow-hidden shadow-lg">
               <CardContent className="p-0">
                 <Image
-                  src={book.coverImage}
+                  src={book.coverImage as string}
                   alt={`Cover of ${book.title}`}
                   width={400}
                   height={600}
                   className="w-full object-cover"
                   data-ai-hint={book['data-ai-hint'] as string | undefined}
-                  unoptimized // Add this if you use placehold.co or similar without adding to next.config
+                  unoptimized
                 />
               </CardContent>
             </Card>
@@ -192,11 +192,11 @@ export default function BookDetailsPage() {
                 )}
             </div>
              <div className="space-y-2">
-                <EditBookDialog book={book}>
-                    <Button variant="outline" className="w-full">
+                <Button asChild variant="outline" className="w-full">
+                    <Link href={`/books/edit/${book.id}`}>
                         <Edit className="mr-2 h-4 w-4" /> Edit Details
-                    </Button>
-                </EditBookDialog>
+                    </Link>
+                </Button>
                  <Button variant="outline" className="w-full">
                      <Download className="mr-2 h-4 w-4" /> Download
                  </Button>
