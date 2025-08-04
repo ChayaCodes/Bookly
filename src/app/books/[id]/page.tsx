@@ -145,7 +145,7 @@ export default function BookDetailsPage() {
   }
   
   const hasText = !!book.storagePath && book.type !== 'audio';
-  const hasAudio = !!book.audioStoragePath || book.type === 'audio';
+  const hasAudio = !!book.chapters || book.type === 'audio';
 
   return (
     <div className="min-h-screen bg-background">
@@ -195,7 +195,7 @@ export default function BookDetailsPage() {
                         {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
                     </Button>
                 )}
-                {hasAudio && !hasText && (
+                {hasAudio && !hasText && book.type === 'audio' && (
                      <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
                         {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
                         {isConverting ? 'Creating Text...' : 'Create Text Version'}
@@ -281,7 +281,7 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
 
-            {hasAudio && generatedChapters.length > 0 && (
+            {generatedChapters.length > 0 && (
                 <Card>
                     <CardHeader>
                         <CardTitle className="font-headline flex items-center gap-2">

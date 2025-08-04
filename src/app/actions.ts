@@ -256,16 +256,16 @@ export async function getArrayBufferFromStorage(storagePath: string): Promise<st
 }
 
 export async function getTextContentFromStorage(storagePath: string): Promise<string> {
-    const base64Content = await getArrayBufferFromStorage(storagePath);
     try {
-        const buffer = Buffer.from(base64Content, 'base64');
-        // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
-        const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
-        const text = decoder.decode(buffer);
-        if (text.trim().length === 0) {
-             return "This document appears to be empty or in a format that could not be read as text.";
-        }
-        return text;
+      const base64Content = await getArrayBufferFromStorage(storagePath);
+      const buffer = Buffer.from(base64Content, 'base64');
+      // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
+      const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+      const text = decoder.decode(buffer);
+      if (text.trim().length === 0) {
+           return "This document appears to be empty or in a format that could not be read as text.";
+      }
+      return text;
     } catch (e) {
         console.warn(`Could not decode ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
         return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
