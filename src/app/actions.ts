@@ -326,7 +326,8 @@ async function doGenerateAudiobook(bookId: string, storagePath: string) {
         console.error(`[${bookId}] ❌ Audiobook generation failed:`, e);
         await updateDoc(bookDocRef, {
             audioGenerationStatus: 'failed',
-            audioGenerationError: e.message || 'An unknown error occurred.'
+            audioGenerationError: e.message || 'An unknown error occurred.',
+            audioGeneretionFullError: JSON.stringify(e)
         });
     }
 }
