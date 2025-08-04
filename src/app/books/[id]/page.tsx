@@ -6,12 +6,12 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
-import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, FileText } from 'lucide-react';
+import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, FileText, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { summarizeContentAction, generateAudiobookAction, getArrayBufferFromStorage } from '@/app/actions';
+import { summarizeContentAction, triggerAudiobookGenerationAction } from '@/app/actions';
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -24,14 +24,13 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { storage } from '@/lib/firebase';
-import { ref, getDownloadURL, uploadString } from 'firebase/storage';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
-
-type AudioChapter = {
-    title: string;
-    audioDataUri: string;
-}
 
 export default function BookDetailsPage() {
   const router = useRouter();
@@ -39,29 +38,20 @@ export default function BookDetailsPage() {
   const { findBookById, deleteBook, updateBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
-  const [isConverting, startConversionTransition] = useTransition();
-  const [generatedChapters, setGeneratedChapters] = useState<AudioChapter[]>([]);
+  const [isAudioLoading, startAudioTransition] = useTransition();
   const { toast } = useToast();
 
   useEffect(() => {
     if (params.id) {
         findBookById(params.id as string).then(serverBook => {
           setBook(serverBook || null);
-           if (serverBook?.audioStoragePath && serverBook?.type !== 'audio') {
-              const audioRef = ref(storage, serverBook.audioStoragePath);
-              getDownloadURL(audioRef).then(url => {
-                  fetch(url).then(res => res.json()).then(data => {
-                      setGeneratedChapters(data.chapters);
-                  }).catch(e => console.error("Error fetching audio chapters json", e));
-              }).catch(e => console.error("Error getting download URL for audio", e));
-          }
         });
     }
   }, [params.id, findBookById]);
 
 
   const handleGenerateSummary = () => {
-    if (!book?.storagePath) return;
+    if (!book?.storagePath || book.type === 'audio') return;
     startSummaryTransition(async () => {
       const result = await summarizeContentAction({ storagePath: book.storagePath as string });
       if (result.error) {
@@ -88,32 +78,20 @@ export default function BookDetailsPage() {
         toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without the book's text file."});
         return;
     }
-    startConversionTransition(async () => {
-        const result = await generateAudiobookAction({ storagePath: book.storagePath as string });
+    startAudioTransition(async () => {
+        const result = await triggerAudiobookGenerationAction({ bookId: book.id, storagePath: book.storagePath! });
         if (result.error) {
             toast({ variant: 'destructive', title: 'Audiobook Creation Failed', description: result.error });
-        } else if (result.data) {
-            const audioJson = JSON.stringify({ chapters: result.data.chapters });
-            const audioStoragePath = `audiobooks/${book.id}.json`;
-            const audioRef = ref(storage, audioStoragePath);
-            
-            try {
-              await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
-              const updatedBookData = { audioStoragePath: audioStoragePath };
-              await updateBook({id: book.id, ...updatedBookData});
-              setBook(prev => prev ? {...prev, ...updatedBookData} : null);
-              setGeneratedChapters(result.data.chapters);
-              toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated successfully.' });
-            } catch (e: any) {
-               toast({ variant: 'destructive', title: 'Storage Error', description: `Failed to save audiobook chapters: ${e.message}` });
-            }
+        } else {
+            toast({ title: 'Audiobook Generation Started!', description: 'The process is running in the background and may take a few minutes.' });
+            // The UI will update automatically via the Firestore listener
         }
     });
   };
 
   const handleCreateTextVersion = () => {
     // Placeholder for Speech-to-Text functionality
-    startConversionTransition(async () => {
+    startAudioTransition(async () => {
         toast({ title: 'Coming Soon!', description: 'Speech-to-text conversion is not yet available.'});
     });
   }
@@ -146,6 +124,62 @@ export default function BookDetailsPage() {
   
   const hasText = !!book.storagePath && book.type !== 'audio';
   const hasAudio = !!book.chapters || book.type === 'audio';
+  const isAudioReady = hasAudio && book.audioGenerationStatus === 'completed';
+
+  const renderAudioButton = () => {
+    // Case 1: Text book, no audio generation started yet
+    if (hasText && !hasAudio && !book.audioGenerationStatus) {
+      return (
+        <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isAudioLoading}>
+          {isAudioLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
+          {isAudioLoading ? 'Starting...' : 'Create Audiobook'}
+        </Button>
+      );
+    }
+
+    // Case 2: Audio generation is pending or in progress
+    if (book.audioGenerationStatus === 'pending' || book.audioGenerationStatus === 'processing') {
+      return (
+        <Button size="lg" variant="secondary" className="w-full" disabled>
+          <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+          Creating Audiobook...
+        </Button>
+      );
+    }
+    
+    // Case 3: Audio generation failed
+    if (book.audioGenerationStatus === 'failed') {
+        return (
+            <TooltipProvider>
+                <Tooltip>
+                    <TooltipTrigger asChild>
+                        <Button size="lg" variant="destructive" className="w-full" onClick={handleCreateAudiobook}>
+                            <AlertCircle className="mr-2 h-5 w-5" />
+                            Retry Audiobook Creation
+                        </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                        <p>Error: {book.audioGenerationError || 'An unknown error occurred.'}</p>
+                    </TooltipContent>
+                </Tooltip>
+            </TooltipProvider>
+        );
+    }
+
+    // Case 4: Audio is ready to listen to
+    if (isAudioReady) {
+      return (
+        <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold" asChild>
+          <Link href={`/books/${book.id}/listen`}>
+            <Headphones className="mr-2 h-5 w-5" />
+            Listen Now
+          </Link>
+        </Button>
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -180,25 +214,13 @@ export default function BookDetailsPage() {
                       </Link>
                     </Button>
                 )}
-                {hasAudio && (
-                     <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold" asChild>
-                       <Link href={`/books/${book.id}/listen`}>
-                          <Headphones className="mr-2 h-5 w-5" />
-                          Listen Now
-                       </Link>
-                    </Button>
-                )}
                 
-                {hasText && !hasAudio && (
-                    <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
-                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
-                        {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
-                    </Button>
-                )}
+                {renderAudioButton()}
+                
                 {hasAudio && !hasText && book.type === 'audio' && (
-                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
-                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
-                        {isConverting ? 'Creating Text...' : 'Create Text Version'}
+                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isAudioLoading}>
+                        {isAudioLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
+                        {isAudioLoading ? 'Creating Text...' : 'Create Text Version'}
                     </Button>
                 )}
             </div>
@@ -280,25 +302,6 @@ export default function BookDetailsPage() {
                 )}
               </CardContent>
             </Card>
-
-            {generatedChapters.length > 0 && (
-                <Card>
-                    <CardHeader>
-                        <CardTitle className="font-headline flex items-center gap-2">
-                            <Headphones className="text-primary w-5 h-5"/>
-                            Generated Audiobook Chapters
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                        {generatedChapters.map((chapter, index) => (
-                            <div key={index} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
-                               <p className="font-semibold flex-1">{chapter.title}</p>
-                               <audio controls src={chapter.audioDataUri} className="w-full max-w-xs h-10" />
-                            </div>
-                        ))}
-                    </CardContent>
-                </Card>
-            )}
 
             <Card className="bg-accent/20">
               <CardContent className="p-6 text-center">

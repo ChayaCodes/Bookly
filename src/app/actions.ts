@@ -293,22 +293,55 @@ export async function summarizeContentAction(input: {storagePath: string}) {
   }
 }
 
-const audiobookSchema = z.object({
-  storagePath: z.string().min(1, "Book content is required."),
+async function doGenerateAudiobook(bookId: string, storagePath: string) {
+    const bookDocRef = doc(db, 'books', bookId);
+    try {
+        await updateDoc(bookDocRef, { audioGenerationStatus: 'processing' });
+        const bookContent = await getTextContentFromStorage(storagePath);
+        const audioData = await generateAudiobook({ bookContent });
+
+        const chapterPromises = audioData.chapters.map(async (chapter) => {
+            const chapterPath = `audiobooks/${bookId}/${chapter.title.replace(/\s+/g, '_')}.wav`;
+            const chapterRef = ref(storage, chapterPath);
+            await uploadString(chapterRef, chapter.audioDataUri, 'data_url');
+            return { title: chapter.title, storagePath: chapterPath };
+        });
+
+        const chapters = await Promise.all(chapterPromises);
+
+        await updateDoc(bookDocRef, {
+            chapters: chapters,
+            audioGenerationStatus: 'completed'
+        });
+
+    } catch (e: any) {
+        console.error("Audiobook generation failed:", e);
+        await updateDoc(bookDocRef, {
+            audioGenerationStatus: 'failed',
+            audioGenerationError: e.message || 'An unknown error occurred.'
+        });
+    }
+}
+
+
+const triggerAudiobookSchema = z.object({
+  bookId: z.string().min(1),
+  storagePath: z.string().min(1),
 });
 
-export async function generateAudiobookAction(input: {storagePath: string}) {
-  const validation = audiobookSchema.safeParse(input);
-  if (!validation.success) {
-      return { data: null, error: validation.error.errors.map(e => e.message).join(', ') };
-  }
-  try {
-    const bookContent = await getTextContentFromStorage(input.storagePath);
-    const audiobook = await generateAudiobook({ bookContent });
-    return { data: audiobook, error: null };
-  } catch (e: any)
-{
-    console.error("Audiobook generation failed:", e);
-    return { data: null, error: `Failed to generate audiobook: ${e.message || 'Please try again.'}` };
-  }
+export async function triggerAudiobookGenerationAction(input: z.infer<typeof triggerAudiobookSchema>) {
+    const validation = triggerAudiobookSchema.safeParse(input);
+    if (!validation.success) {
+        return { error: validation.error.errors.map(e => e.message).join(', ') };
+    }
+    const { bookId, storagePath } = validation.data;
+    const bookDocRef = doc(db, 'books', bookId);
+    
+    // Immediately update status to 'pending' and return
+    await updateDoc(bookDocRef, { audioGenerationStatus: 'pending' });
+
+    // Fire-and-forget the actual processing
+    doGenerateAudiobook(bookId, storagePath);
+
+    return { success: true };
 }

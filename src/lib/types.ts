@@ -22,6 +22,8 @@ export interface Book {
   summary?: string;
   readingProgress: number; // Percentage 0-100
   createdAt: number; // Timestamp
+  audioGenerationStatus?: 'pending' | 'processing' | 'completed' | 'failed';
+  audioGenerationError?: string;
   
   // Client-side only fields
   status?: 'processing' | 'uploading' | 'ready';
