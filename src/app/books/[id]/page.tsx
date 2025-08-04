@@ -6,12 +6,20 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useBookLibrary } from '@/hooks/use-book-library';
 import type { Book } from '@/lib/types';
+<<<<<<< HEAD
 import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, FileText, AlertCircle } from 'lucide-react';
+=======
+import { ArrowLeft, BookOpen, Download, Edit, Headphones, Loader2, Sparkles, Trash2, FileText } from 'lucide-react';
+>>>>>>> refs/remotes/origin/main
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+<<<<<<< HEAD
 import { summarizeContentAction, triggerAudiobookGenerationAction } from '@/app/actions';
+=======
+import { summarizeContentAction, generateAudiobookAction, getArrayBufferFromStorage } from '@/app/actions';
+>>>>>>> refs/remotes/origin/main
 import { useToast } from '@/hooks/use-toast';
 import {
   AlertDialog,
@@ -24,6 +32,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+<<<<<<< HEAD
 import {
   Tooltip,
   TooltipContent,
@@ -31,6 +40,16 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+=======
+import { storage } from '@/lib/firebase';
+import { ref, getDownloadURL, uploadString } from 'firebase/storage';
+
+
+type AudioChapter = {
+    title: string;
+    audioDataUri: string;
+}
+>>>>>>> refs/remotes/origin/main
 
 export default function BookDetailsPage() {
   const router = useRouter();
@@ -38,20 +57,40 @@ export default function BookDetailsPage() {
   const { findBookById, deleteBook, updateBook } = useBookLibrary();
   const [book, setBook] = useState<Book | null>(null);
   const [isSummaryLoading, startSummaryTransition] = useTransition();
+<<<<<<< HEAD
   const [isAudioLoading, startAudioTransition] = useTransition();
+=======
+  const [isConverting, startConversionTransition] = useTransition();
+  const [generatedChapters, setGeneratedChapters] = useState<AudioChapter[]>([]);
+>>>>>>> refs/remotes/origin/main
   const { toast } = useToast();
 
   useEffect(() => {
     if (params.id) {
         findBookById(params.id as string).then(serverBook => {
           setBook(serverBook || null);
+<<<<<<< HEAD
+=======
+           if (serverBook?.audioStoragePath && serverBook?.type !== 'audio') {
+              const audioRef = ref(storage, serverBook.audioStoragePath);
+              getDownloadURL(audioRef).then(url => {
+                  fetch(url).then(res => res.json()).then(data => {
+                      setGeneratedChapters(data.chapters);
+                  }).catch(e => console.error("Error fetching audio chapters json", e));
+              }).catch(e => console.error("Error getting download URL for audio", e));
+          }
+>>>>>>> refs/remotes/origin/main
         });
     }
   }, [params.id, findBookById]);
 
 
   const handleGenerateSummary = () => {
+<<<<<<< HEAD
     if (!book?.storagePath || book.type === 'audio') return;
+=======
+    if (!book?.storagePath) return;
+>>>>>>> refs/remotes/origin/main
     startSummaryTransition(async () => {
       const result = await summarizeContentAction({ storagePath: book.storagePath as string });
       if (result.error) {
@@ -78,6 +117,7 @@ export default function BookDetailsPage() {
         toast({ variant: 'destructive', title: 'Missing Content', description: "Cannot create audiobook without the book's text file."});
         return;
     }
+<<<<<<< HEAD
     startAudioTransition(async () => {
         const result = await triggerAudiobookGenerationAction({ bookId: book.id, storagePath: book.storagePath! });
         if (result.error) {
@@ -85,6 +125,27 @@ export default function BookDetailsPage() {
         } else {
             toast({ title: 'Audiobook Generation Started!', description: 'The process is running in the background and may take a few minutes.' });
             // The UI will update automatically via the Firestore listener
+=======
+    startConversionTransition(async () => {
+        const result = await generateAudiobookAction({ storagePath: book.storagePath as string });
+        if (result.error) {
+            toast({ variant: 'destructive', title: 'Audiobook Creation Failed', description: result.error });
+        } else if (result.data) {
+            const audioJson = JSON.stringify({ chapters: result.data.chapters });
+            const audioStoragePath = `audiobooks/${book.id}.json`;
+            const audioRef = ref(storage, audioStoragePath);
+            
+            try {
+              await uploadString(audioRef, audioJson, 'raw', { contentType: 'application/json' });
+              const updatedBookData = { audioStoragePath: audioStoragePath };
+              await updateBook({id: book.id, ...updatedBookData});
+              setBook(prev => prev ? {...prev, ...updatedBookData} : null);
+              setGeneratedChapters(result.data.chapters);
+              toast({ title: 'Audiobook Ready!', description: 'Your audiobook has been generated successfully.' });
+            } catch (e: any) {
+               toast({ variant: 'destructive', title: 'Storage Error', description: `Failed to save audiobook chapters: ${e.message}` });
+            }
+>>>>>>> refs/remotes/origin/main
         }
     });
   };
@@ -123,6 +184,7 @@ export default function BookDetailsPage() {
   }
   
   const hasText = !!book.storagePath && book.type !== 'audio';
+<<<<<<< HEAD
   const hasAudio = !!book.chapters || book.type === 'audio';
   const isAudioReady = hasAudio && book.audioGenerationStatus === 'completed';
 
@@ -180,6 +242,9 @@ export default function BookDetailsPage() {
 
     return null;
   }
+=======
+  const hasAudio = !!book.audioStoragePath || book.type === 'audio';
+>>>>>>> refs/remotes/origin/main
 
   return (
     <div className="min-h-screen bg-background">
@@ -212,6 +277,7 @@ export default function BookDetailsPage() {
                         <BookOpen className="mr-2 h-5 w-5" />
                         Read Now
                       </Link>
+<<<<<<< HEAD
                     </Button>
                 )}
                 
@@ -221,6 +287,29 @@ export default function BookDetailsPage() {
                      <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isAudioLoading}>
                         {isAudioLoading ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
                         {isAudioLoading ? 'Creating Text...' : 'Create Text Version'}
+=======
+                    </Button>
+                )}
+                {hasAudio && (
+                     <Button size="lg" variant={hasText ? "secondary" : "default"} className="w-full font-bold" asChild>
+                       <Link href={`/books/${book.id}/listen`}>
+                          <Headphones className="mr-2 h-5 w-5" />
+                          Listen Now
+                       </Link>
+                    </Button>
+                )}
+                
+                {hasText && !hasAudio && (
+                    <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateAudiobook} disabled={isConverting}>
+                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <Headphones className="mr-2 h-5 w-5" />}
+                        {isConverting ? 'Creating Audiobook...' : 'Create Audiobook'}
+                    </Button>
+                )}
+                {hasAudio && !hasText && (
+                     <Button size="lg" variant="secondary" className="w-full" onClick={handleCreateTextVersion} disabled={isConverting}>
+                        {isConverting ? <Loader2 className="mr-2 h-5 w-5 animate-spin" /> : <FileText className="mr-2 h-5 w-5" />}
+                        {isConverting ? 'Creating Text...' : 'Create Text Version'}
+>>>>>>> refs/remotes/origin/main
                     </Button>
                 )}
             </div>
@@ -303,6 +392,28 @@ export default function BookDetailsPage() {
               </CardContent>
             </Card>
 
+<<<<<<< HEAD
+=======
+            {hasAudio && generatedChapters.length > 0 && (
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="font-headline flex items-center gap-2">
+                            <Headphones className="text-primary w-5 h-5"/>
+                            Generated Audiobook Chapters
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                        {generatedChapters.map((chapter, index) => (
+                            <div key={index} className="flex items-center gap-4 p-2 rounded-md bg-muted/50">
+                               <p className="font-semibold flex-1">{chapter.title}</p>
+                               <audio controls src={chapter.audioDataUri} className="w-full max-w-xs h-10" />
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
+
+>>>>>>> refs/remotes/origin/main
             <Card className="bg-accent/20">
               <CardContent className="p-6 text-center">
                  <p className="font-bold text-accent-foreground">Advertisement</p>

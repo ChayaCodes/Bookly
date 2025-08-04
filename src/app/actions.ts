@@ -256,6 +256,7 @@ export async function getArrayBufferFromStorage(storagePath: string): Promise<st
 }
 
 export async function getTextContentFromStorage(storagePath: string): Promise<string> {
+<<<<<<< HEAD
     try {
       const base64Content = await getArrayBufferFromStorage(storagePath);
       const buffer = Buffer.from(base64Content, 'base64');
@@ -266,6 +267,18 @@ export async function getTextContentFromStorage(storagePath: string): Promise<st
            return "This document appears to be empty or in a format that could not be read as text.";
       }
       return text;
+=======
+    const base64Content = await getArrayBufferFromStorage(storagePath);
+    try {
+        const buffer = Buffer.from(base64Content, 'base64');
+        // Use a robust TextDecoder to handle various encodings, especially UTF-8 for Hebrew.
+        const decoder = new TextDecoder('utf-8', { fatal: false, ignoreBOM: true });
+        const text = decoder.decode(buffer);
+        if (text.trim().length === 0) {
+             return "This document appears to be empty or in a format that could not be read as text.";
+        }
+        return text;
+>>>>>>> refs/remotes/origin/main
     } catch (e) {
         console.warn(`Could not decode ${storagePath} as text. This is expected for binary files like PDF or EPUB. Returning placeholder content.`);
         return "This document is in a format that cannot be displayed as plain text. Summary and other features will be based on available metadata.";
@@ -293,6 +306,7 @@ export async function summarizeContentAction(input: {storagePath: string}) {
   }
 }
 
+<<<<<<< HEAD
 async function doGenerateAudiobook(bookId: string, storagePath: string) {
     const bookDocRef = doc(db, 'books', bookId);
     console.log(`[${bookId}] 🎤 Audiobook generation process started.`);
@@ -353,4 +367,24 @@ export async function triggerAudiobookGenerationAction(input: z.infer<typeof tri
     doGenerateAudiobook(bookId, storagePath);
 
     return { success: true };
+=======
+const audiobookSchema = z.object({
+  storagePath: z.string().min(1, "Book content is required."),
+});
+
+export async function generateAudiobookAction(input: {storagePath: string}) {
+  const validation = audiobookSchema.safeParse(input);
+  if (!validation.success) {
+      return { data: null, error: validation.error.errors.map(e => e.message).join(', ') };
+  }
+  try {
+    const bookContent = await getTextContentFromStorage(input.storagePath);
+    const audiobook = await generateAudiobook({ bookContent });
+    return { data: audiobook, error: null };
+  } catch (e: any)
+{
+    console.error("Audiobook generation failed:", e);
+    return { data: null, error: `Failed to generate audiobook: ${e.message || 'Please try again.'}` };
+  }
+>>>>>>> refs/remotes/origin/main
 }
