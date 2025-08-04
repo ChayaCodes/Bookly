@@ -7,8 +7,6 @@ import Link from 'next/link';
 import type { Book } from '@/lib/types';
 import {
   ArrowLeft,
-  ChevronDown,
-  ChevronUp,
   ListMusic,
   Pause,
   Play,
@@ -29,6 +27,12 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from '@/lib/utils';
 
 
@@ -60,7 +64,6 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
     
     const audioRef = useRef<HTMLAudioElement>(null);
-    const progressBarRef = useRef<HTMLInputElement>(null);
 
     const currentChapter = chapters[currentChapterIndex];
     
@@ -139,24 +142,39 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
 
 
     return (
+     <TooltipProvider>
         <div className="flex h-screen w-screen items-center justify-center bg-muted/40 font-body">
              <audio ref={audioRef} src={currentChapter.url} preload="metadata" />
              <Card className="w-full max-w-md mx-auto shadow-2xl rounded-2xl overflow-hidden">
                 <CardContent className="p-6 space-y-4 bg-background">
                      {/* Header */}
                     <div className="flex items-center justify-between">
-                         <Button variant="ghost" size="icon" asChild>
-                             <Link href={`/books/${book.id}`}>
-                                <ArrowLeft />
-                             </Link>
-                         </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                 <Button variant="ghost" size="icon" asChild>
+                                     <Link href={`/books/${book.id}`}>
+                                        <ArrowLeft />
+                                     </Link>
+                                 </Button>
+                             </TooltipTrigger>
+                             <TooltipContent>
+                                 <p>Back to Details</p>
+                             </TooltipContent>
+                        </Tooltip>
                          <div className="text-center">
                             <p className="text-sm uppercase tracking-wider text-muted-foreground">Playing From</p>
                             <p className="font-bold">{book.title}</p>
                          </div>
-                        <Button variant="ghost" size="icon">
-                            <Volume2 />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon">
+                                    <Volume2 />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Volume</p>
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
                     
                     {/* Cover Image */}
@@ -187,21 +205,56 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
 
                      {/* Main Controls */}
                      <div className="flex items-center justify-center gap-4">
-                         <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => seek(-15)}>
-                            <Rewind className="h-6 w-6" />
-                        </Button>
-                         <Button variant="ghost" size="icon" className="h-16 w-16" onClick={goToPrevChapter} disabled={currentChapterIndex === 0}>
-                            <SkipBack className="h-8 w-8" />
-                        </Button>
-                        <Button size="icon" className="h-20 w-20 rounded-full shadow-lg" onClick={togglePlayPause}>
-                            {isPlaying ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10 ml-1" />}
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-16 w-16" onClick={goToNextChapter} disabled={currentChapterIndex === chapters.length - 1}>
-                            <SkipForward className="h-8 w-8" />
-                        </Button>
-                         <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => seek(15)}>
-                            <FastForward className="h-6 w-6" />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                 <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => seek(-15)}>
+                                    <Rewind className="h-6 w-6" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Rewind 15s</p>
+                            </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-16 w-16" onClick={goToPrevChapter} disabled={currentChapterIndex === 0}>
+                                    <SkipBack className="h-8 w-8" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Previous Chapter</p>
+                            </TooltipContent>
+                        </Tooltip>
+                         <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button size="icon" className="h-20 w-20 rounded-full shadow-lg" onClick={togglePlayPause}>
+                                    {isPlaying ? <Pause className="h-10 w-10" /> : <Play className="h-10 w-10 ml-1" />}
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>{isPlaying ? "Pause" : "Play"}</p>
+                            </TooltipContent>
+                        </Tooltip>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                <Button variant="ghost" size="icon" className="h-16 w-16" onClick={goToNextChapter} disabled={currentChapterIndex === chapters.length - 1}>
+                                    <SkipForward className="h-8 w-8" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Next Chapter</p>
+                            </TooltipContent>
+                        </Tooltip>
+                         <Tooltip>
+                            <TooltipTrigger asChild>
+                                 <Button variant="ghost" size="icon" className="h-12 w-12" onClick={() => seek(15)}>
+                                    <FastForward className="h-6 w-6" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Fast Forward 15s</p>
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
 
                     {/* Bottom Controls */}
@@ -241,14 +294,20 @@ export function AudioPlayer({ book, chapters }: AudioPlayerProps) {
                                 </div>
                             </CollapsibleContent>
                         </Collapsible>
-                         <Button variant="ghost" size="icon" className="rounded-full">
-                            <Repeat className="h-4 w-4" />
-                        </Button>
+                        <Tooltip>
+                            <TooltipTrigger asChild>
+                                 <Button variant="ghost" size="icon" className="rounded-full">
+                                    <Repeat className="h-4 w-4" />
+                                </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                                <p>Repeat</p>
+                            </TooltipContent>
+                        </Tooltip>
                     </div>
                 </CardContent>
             </Card>
         </div>
+    </TooltipProvider>
     );
 }
-
-    
