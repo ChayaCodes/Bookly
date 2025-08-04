@@ -5,7 +5,7 @@
  */
 
 import { ai } from '@/ai/genkit';
-import { z } from 'genkit';
+import { z } from 'zod';
 import { googleAI } from '@genkit-ai/googleai';
 import wav from 'wav';
 import { Readable } from 'stream';
@@ -91,35 +91,34 @@ const generateAudiobookFlow = ai.defineFlow(
   },
   async (input) => {
     const textChapters = splitIntoChapters(input.bookContent);
+    const audioChapters = [];
     
-    const audioChapters = await Promise.all(
-        textChapters.map(async (chapter) => {
-            const { media } = await ai.generate({
-                model: googleAI.model('gemini-2.5-flash-preview-tts'),
-                config: {
-                    responseModalities: ['AUDIO'],
-                    speechConfig: {
-                        voiceConfig: {
-                            prebuiltVoiceConfig: { voiceName: 'Algenib' },
-                        },
+    for (const chapter of textChapters) {
+        const { media } = await ai.generate({
+            model: googleAI.model('gemini-2.5-flash-preview-tts'),
+            config: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                    voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: 'Algenib' },
                     },
                 },
-                prompt: chapter.content,
-            });
+            },
+            prompt: chapter.content,
+        });
 
-            if (!media || !media.url) {
-                throw new Error(`Failed to generate audio for ${chapter.title}`);
-            }
+        if (!media || !media.url) {
+            throw new Error(`Failed to generate audio for ${chapter.title}`);
+        }
 
-            const pcmBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
-            const wavBase64 = await toWav(pcmBuffer);
+        const pcmBuffer = Buffer.from(media.url.substring(media.url.indexOf(',') + 1), 'base64');
+        const wavBase64 = await toWav(pcmBuffer);
 
-            return {
-                title: chapter.title,
-                audioDataUri: `data:audio/wav;base64,${wavBase64}`,
-            };
-        })
-    );
+        audioChapters.push({
+            title: chapter.title,
+            audioDataUri: `data:audio/wav;base64,${wavBase64}`,
+        });
+    }
 
     return { chapters: audioChapters };
   }
