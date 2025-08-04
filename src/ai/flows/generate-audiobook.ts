@@ -33,11 +33,8 @@ async function toWav(
       resolve(Buffer.concat(bufs).toString('base64'));
     });
 
-    const readable = new Readable();
-    readable.push(pcmData);
-    readable.push(null); // Signal end of data
-
-    readable.pipe(writer);
+    writer.write(pcmData);
+    writer.end();
   });
 }
 
