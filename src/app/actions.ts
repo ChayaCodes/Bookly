@@ -295,15 +295,22 @@ export async function summarizeContentAction(input: {storagePath: string}) {
 
 async function doGenerateAudiobook(bookId: string, storagePath: string) {
     const bookDocRef = doc(db, 'books', bookId);
+    console.log(`[${bookId}] 🎤 Audiobook generation process started.`);
     try {
         await updateDoc(bookDocRef, { audioGenerationStatus: 'processing' });
+        console.log(`[${bookId}] -> Fetching book content from ${storagePath}`);
         const bookContent = await getTextContentFromStorage(storagePath);
+        
+        console.log(`[${bookId}] -> Calling AI to generate audio data...`);
         const audioData = await generateAudiobook({ bookContent });
+        console.log(`[${bookId}] -> AI returned ${audioData.chapters.length} audio chapters.`);
 
-        const chapterPromises = audioData.chapters.map(async (chapter) => {
+        const chapterPromises = audioData.chapters.map(async (chapter, index) => {
+            console.log(`[${bookId}] --> Processing ${chapter.title} (${index + 1}/${audioData.chapters.length})`);
             const chapterPath = `audiobooks/${bookId}/${chapter.title.replace(/\s+/g, '_')}.wav`;
             const chapterRef = ref(storage, chapterPath);
             await uploadString(chapterRef, chapter.audioDataUri, 'data_url');
+            console.log(`[${bookId}] --> Uploaded ${chapter.title} to ${chapterPath}`);
             return { title: chapter.title, storagePath: chapterPath };
         });
 
@@ -313,9 +320,10 @@ async function doGenerateAudiobook(bookId: string, storagePath: string) {
             chapters: chapters,
             audioGenerationStatus: 'completed'
         });
+        console.log(`[${bookId}] ✅ Audiobook generation process completed successfully.`);
 
     } catch (e: any) {
-        console.error("Audiobook generation failed:", e);
+        console.error(`[${bookId}] ❌ Audiobook generation failed:`, e);
         await updateDoc(bookDocRef, {
             audioGenerationStatus: 'failed',
             audioGenerationError: e.message || 'An unknown error occurred.'
